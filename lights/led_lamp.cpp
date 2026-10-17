@@ -12,9 +12,19 @@ namespace {
 //   notify: 0000ffd4-0000-1000-8000-00805f9b34fb
 NimBLEAddress lampAddress(std::string(LED_LAMP_ADDRESS), LED_LAMP_ADDRESS_TYPE);
 
+// Created once in begin() and reused for every connection attempt.
 NimBLEClient* client = nullptr;
 NimBLERemoteCharacteristic* writeChar = nullptr;
 NimBLERemoteCharacteristic* notifyChar = nullptr;
+
+// Connection state. The volatile flags are set from the BLE task by
+// LampCallbacks and handled in loop(), because service discovery must not
+// run inside a BLE callback.
+volatile bool attemptPending = false;  // a connection attempt is running
+volatile bool justConnected = false;   // connected, discovery still to do
+volatile bool ready = false;           // discovery done, commands can be sent
+unsigned long lastAttemptMs = 0;
+bool attemptedOnce = false;
 
 // Latest status received from the lamp (written from the BLE task)
 volatile bool lampOn = false;
@@ -64,8 +74,32 @@ void notificationCallback(
   Serial.println();
 }
 
+// Runs in the BLE task: only set flags here.
+class LampCallbacks : public NimBLEClientCallbacks {
+  void onConnect(NimBLEClient* pClient) override {
+    attemptPending = false;
+    justConnected = true;
+  }
+
+  void onConnectFail(NimBLEClient* pClient, int reason) override {
+    attemptPending = false;
+    Serial.print("Lamp connection failed, reason ");
+    Serial.println(reason);
+  }
+
+  void onDisconnect(NimBLEClient* pClient, int reason) override {
+    ready = false;
+    justConnected = false;
+    attemptPending = false;
+    Serial.print("Lamp disconnected, reason ");
+    Serial.println(reason);
+  }
+};
+
+LampCallbacks callbacks;
+
 bool sendCommand(const uint8_t* data, size_t length) {
-  if (!client || !client->isConnected() || !writeChar) {
+  if (!isConnected()) {
     Serial.println("Not connected to lamp!");
     return false;
   }
@@ -80,18 +114,28 @@ bool sendCommand(const uint8_t* data, size_t length) {
   return success;
 }
 
-}  // namespace
-
-bool connect() {
+// Starts a connection attempt and returns immediately.
+// The result arrives in LampCallbacks.
+void startConnecting() {
   Serial.println("Connecting to lamp...");
 
-  client = NimBLEDevice::createClient();
+  attemptedOnce = true;
+  lastAttemptMs = millis();
 
-  if (!client->connect(lampAddress)) {
-    Serial.println("Connection failed.");
-    return false;
+  // connect() deletes the old services, so drop our pointers into them first.
+  writeChar = nullptr;
+  notifyChar = nullptr;
+
+  attemptPending = true;
+  if (!client->connect(lampAddress, true, true)) {
+    attemptPending = false;
+    Serial.println("Could not start connecting to lamp.");
   }
+}
 
+// Called once after each new connection: finds the characteristics
+// and subscribes to status notifications. Blocks for a moment.
+bool setupConnection() {
   Serial.println("Connected! Discovering characteristics...");
 
   // Discover all services and locate the characteristic
@@ -130,15 +174,69 @@ bool connect() {
     }
   }
 
+  if (!client->isConnected()) {
+    Serial.println("Lamp disconnected during setup.");
+    return false;
+  }
+
+  ready = true;
+
   delay(300);
   requestStatus();
 
   return true;
 }
 
+}  // namespace
+
+void begin() {
+  client = NimBLEDevice::createClient(lampAddress);
+  client->setClientCallbacks(&callbacks, false);
+  client->setConnectTimeout(LED_LAMP_CONNECT_TIMEOUT_MS);
+}
+
+void loop() {
+  if (!client) return;
+
+  if (justConnected) {
+    justConnected = false;
+    if (!setupConnection()) {
+      client->disconnect();
+    }
+    return;
+  }
+
+  // Safety net in case the stack never reports the end of an attempt.
+  if (attemptPending &&
+      millis() - lastAttemptMs > LED_LAMP_CONNECT_TIMEOUT_MS + 5000) {
+    attemptPending = false;
+  }
+
+  if (ready || attemptPending || client->isConnected()) return;
+
+  if (attemptedOnce && millis() - lastAttemptMs < LED_LAMP_RETRY_INTERVAL_MS) {
+    return;
+  }
+
+  startConnecting();
+}
+
+bool isConnected() {
+  return ready && client && client->isConnected() && writeChar;
+}
+
 bool setColor(uint8_t r, uint8_t g, uint8_t b) {
   const uint8_t command[] = {
     0x56, r, g, b, 0x00, 0xF0, 0xAA
+  };
+  rgbLedWrite(STATUS_LED_PIN, r, g, b);
+
+  return sendCommand(command, sizeof(command));
+}
+
+bool setWhite(uint8_t white) {
+  const uint8_t command[] = {
+    0x56, white, white, white, 0x00, 0xF0, 0xAA
   };
 
   return sendCommand(command, sizeof(command));
