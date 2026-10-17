@@ -1,6 +1,7 @@
 #include "http_server.h"
 
 #include "config.h"
+#include "http_utils.h"
 
 static WebServer server(HTTP_PORT);
 
@@ -10,8 +11,7 @@ WebServer& httpServer() {
 
 void startHttpServer() {
   server.onNotFound([]() {
-    server.send(404, "application/json",
-                "{\"error\":\"Not found\"}");
+    sendError(server, 404, "Not found");
   });
 
   server.begin();
