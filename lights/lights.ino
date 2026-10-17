@@ -7,6 +7,8 @@
 #include "http_server.h"
 #include "led_http.h"
 #include "led_lamp.h"
+#include "room_light.h"
+#include "room_light_http.h"
 #include "serial_console.h"
 #include "wifi_connection.h"
 
@@ -21,15 +23,17 @@ void setup() {
   NimBLEDevice::init(BLE_DEVICE_NAME);
   NimBLEDevice::setPower(ESP_PWR_LVL_P3);  // moderate transmit power
 
-  // Connects in the background from loop(); the rest keeps working
-  // while the lamp is off or out of range.
+  // Both connect in the background from loop(); the rest keeps working
+  // while a lamp is off or out of range.
   LedLamp::begin();
+  RoomLight::begin();
 
   printSerialHelp();
 
   connectWifi();
 
   registerLedRoutes(httpServer());
+  registerRoomLightRoutes(httpServer());
   startHttpServer();
 }
 
@@ -37,6 +41,7 @@ void loop() {
   handleSerialCommands();
   handleHttpClients();
   LedLamp::loop();
+  RoomLight::loop();
 
   delay(10);
 }

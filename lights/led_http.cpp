@@ -1,55 +1,71 @@
 #include "led_http.h"
 
-#include "json_utils.h"
+#include "http_utils.h"
 #include "led_lamp.h"
-#include "led_page.h"
+#include "light_page.h"
 
 namespace {
 
-void handleColor(WebServer& server) {
-  String body = server.arg("plain");
+void sendNotConnected(WebServer& server) {
+  sendError(server, 503, "LED lamp not connected");
+}
 
-  int white;
+void handleRgb(WebServer& server) {
+  int r = -1, g = -1, b = -1, brightness = -1;
 
-  if (getJsonInt(body, "white", white)) {
-    LedLamp::setWhite((uint8_t)white);
-
-    server.send(200, "application/json",
-                "{\"sent\":true,\"white\":" + String(white) + "}");
+  if (!readIntParam(server, "r", r, 0, 255) ||
+      !readIntParam(server, "g", g, 0, 255) ||
+      !readIntParam(server, "b", b, 0, 255) ||
+      !readIntParam(server, "brightness", brightness, 1, 100)) {
     return;
   }
 
-  int r, g, b;
-
-  if (!getJsonInt(body, "r", r) ||
-      !getJsonInt(body, "g", g) ||
-      !getJsonInt(body, "b", b)) {
-    server.send(400, "application/json",
-                "{\"error\":\"Expected RGB or white values from 0 to 255\"}");
+  if (r < 0 || g < 0 || b < 0) {
+    sendError(server, 400, "Provide 'r', 'g' and 'b'");
     return;
   }
 
-  LedLamp::setColor((uint8_t)r, (uint8_t)g, (uint8_t)b);
+  // The lamp has no brightness setting, so scale the color instead.
+  int scale = brightness < 0 ? 100 : brightness;
 
-  String response = "{\"sent\":true,\"r\":" + String(r) +
-                    ",\"g\":" + String(g) +
-                    ",\"b\":" + String(b) + "}";
+  if (!LedLamp::setColor(r * scale / 100, g * scale / 100, b * scale / 100)) {
+    sendNotConnected(server);
+    return;
+  }
 
-  server.send(200, "application/json", response);
+  sendOk(server, "\"mode\":\"color\",\"r\":" + String(r) +
+                     ",\"g\":" + String(g) +
+                     ",\"b\":" + String(b) +
+                     ",\"brightness\":" + jsonNumber(brightness));
+}
+
+void handleWhite(WebServer& server) {
+  int brightness = 70;
+
+  if (!readIntParam(server, "brightness", brightness, 1, 100)) return;
+
+  if (!LedLamp::setWhite((brightness * 255 + 50) / 100)) {
+    sendNotConnected(server);
+    return;
+  }
+
+  sendOk(server, "\"mode\":\"white\",\"brightness\":" + String(brightness));
 }
 
 void handleOn(WebServer& server) {
-  LedLamp::powerOn();
-
-  server.send(200, "application/json",
-              "{\"sent\":true,\"command\":\"on\"}");
+  if (!LedLamp::powerOn()) {
+    sendNotConnected(server);
+    return;
+  }
+  sendOk(server, "\"power\":\"on\"");
 }
 
 void handleOff(WebServer& server) {
-  LedLamp::powerOff();
-
-  server.send(200, "application/json",
-              "{\"sent\":true,\"command\":\"off\"}");
+  if (!LedLamp::powerOff()) {
+    sendNotConnected(server);
+    return;
+  }
+  sendOk(server, "\"power\":\"off\"");
 }
 
 void handleStatus(WebServer& server) {
@@ -61,30 +77,30 @@ void handleStatus(WebServer& server) {
   // This is the latest notification received so far.
   LedLamp::Status status = LedLamp::lastStatus();
 
-  String response = "{";
-  response += "\"connected\":" + String(connected ? "true" : "false");
-  response += ",\"received\":" + String(status.received ? "true" : "false");
-  response += ",\"on\":" + String(status.on ? "true" : "false");
-  response += ",\"rgb\":{\"r\":" + String(status.r) +
-              ",\"g\":" + String(status.g) +
-              ",\"b\":" + String(status.b) + "}";
-  response += ",\"white\":" + String(status.white);
-  response += ",\"mode\":" + String(status.mode);
-  response += ",\"speed\":" + String(status.speed);
-  response += ",\"age_ms\":" + String(status.ageMs);
-  response += "}";
+  String state = "{";
+  state += "\"received\":" + jsonBool(status.received);
+  state += ",\"is_on\":" + jsonBool(status.on);
+  state += ",\"mode\":" + String(status.mode);
+  state += ",\"red\":" + String(status.r);
+  state += ",\"green\":" + String(status.g);
+  state += ",\"blue\":" + String(status.b);
+  state += ",\"white\":" + String(status.white);
+  state += ",\"speed\":" + String(status.speed);
+  state += ",\"age_ms\":" + String(status.ageMs);
+  state += "}";
 
-  server.send(200, "application/json", response);
+  sendOk(server, "\"connected\":" + jsonBool(connected) + ",\"state\":" + state);
 }
 
 }  // namespace
 
 void registerLedRoutes(WebServer& server) {
-  server.on("/led/color", HTTP_POST, [&server]() { handleColor(server); });
-  server.on("/led/on", HTTP_GET, [&server]() { handleOn(server); });
-  server.on("/led/off", HTTP_GET, [&server]() { handleOff(server); });
-  server.on("/led/status", HTTP_GET, [&server]() { handleStatus(server); });
+  server.on("/led/rgb", HTTP_ANY, [&server]() { handleRgb(server); });
+  server.on("/led/white", HTTP_ANY, [&server]() { handleWhite(server); });
+  server.on("/led/on", HTTP_ANY, [&server]() { handleOn(server); });
+  server.on("/led/off", HTTP_ANY, [&server]() { handleOff(server); });
+  server.on("/led/status", HTTP_ANY, [&server]() { handleStatus(server); });
   server.on("/led", HTTP_GET, [&server]() {
-    server.send_P(200, "text/html", LED_PAGE);
+    sendLightPage(server, "LED Lamp", "/led", false);
   });
 }
