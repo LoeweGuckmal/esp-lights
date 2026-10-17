@@ -147,7 +147,12 @@ Look at the room light as an example:
 
 ## Known limitations
 
-- If a lamp is unreachable, Wi-Fi and the web server still run. The ESP retries connecting every
-  15 s (`..._RETRY_INTERVAL_MS` in `config.h`) and right away after a dropped connection, so it can
-  take up to ~15 s until a lamp responds after it is switched on. Until then, commands answer 503.
+- If a lamp is unreachable, Wi-Fi and the web server still run. After a dropped connection the ESP
+  retries right away, then waits longer after each failed attempt: 15 s, 30 s, 1 min … up to 10 min
+  (`BLE_RETRY_MIN_MS` / `BLE_RETRY_MAX_MS` in `config.h`). This way it doesn't keep the radio busy
+  for hours while a lamp is off at the wall switch.
+- A command for a disconnected lamp (HTTP or serial) tries to connect right away. HTTP commands wait
+  for it, so the first command after the lamp was off can take a few seconds. If the lamp is still
+  unreachable, they answer 503 after ~7 s. The web server handles one request at a time, so other
+  requests wait meanwhile. `/status` doesn't wait: it starts connecting and answers right away.
 - While the ESP is connected to the room light, the AwoX app and the Python bridge can't connect to it.

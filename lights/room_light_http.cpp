@@ -10,6 +10,13 @@ void sendNotConnected(WebServer& server) {
   sendError(server, 503, "Room light not connected");
 }
 
+// Connects first if needed, which can take a few seconds.
+bool ensureLampConnected(WebServer& server) {
+  if (RoomLight::ensureConnected()) return true;
+  sendNotConnected(server);
+  return false;
+}
+
 // 0..100 from the API to the lamp's 0..127
 int toLampScale(int percent) {
   return (percent * 127 + 50) / 100;
@@ -34,6 +41,8 @@ void handleRgb(WebServer& server) {
     sendError(server, 400, "Provide 'r', 'g', 'b' and/or 'brightness'");
     return;
   }
+
+  if (!ensureLampConnected(server)) return;
 
   bool sent = true;
   // The lamp accepts 10..100 for color brightness.
@@ -64,6 +73,8 @@ void handleWhite(WebServer& server) {
     brightness = 70;
   }
 
+  if (!ensureLampConnected(server)) return;
+
   bool sent = true;
   if (temperature >= 0) sent = RoomLight::setWhiteTemperature(toLampScale(temperature));
   if (sent && brightness >= 0) {
@@ -80,6 +91,7 @@ void handleWhite(WebServer& server) {
 }
 
 void handleOn(WebServer& server) {
+  if (!ensureLampConnected(server)) return;
   if (!RoomLight::powerOn()) {
     sendNotConnected(server);
     return;
@@ -88,6 +100,7 @@ void handleOn(WebServer& server) {
 }
 
 void handleOff(WebServer& server) {
+  if (!ensureLampConnected(server)) return;
   if (!RoomLight::powerOff()) {
     sendNotConnected(server);
     return;
@@ -97,6 +110,9 @@ void handleOff(WebServer& server) {
 
 // Same fields as the bridge, with the lamp's raw values.
 void handleStatus(WebServer& server) {
+  // Don't wait for a connection here, so the page loads fast.
+  if (!RoomLight::isConnected()) RoomLight::connectNow();
+
   RoomLight::State s = RoomLight::readState();
 
   String state = "{";

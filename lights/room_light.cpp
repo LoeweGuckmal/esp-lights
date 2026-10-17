@@ -38,7 +38,10 @@ volatile bool attemptPending = false;  // a connection attempt is running
 volatile bool justConnected = false;   // connected, pairing still to do
 volatile bool ready = false;           // paired, commands can be sent
 unsigned long lastAttemptMs = 0;
-bool attemptedOnce = false;
+// When to try next. While the lamp is unreachable, the wait doubles
+// after every attempt (backoff), see BLE_RETRY_MIN_MS in config.h.
+unsigned long nextAttemptMs = 0;
+uint32_t retryDelayMs = BLE_RETRY_MIN_MS;
 
 // Key for this connection, derived while pairing
 uint8_t sessionKey[16];
@@ -97,6 +100,7 @@ void cryptPayload(const uint8_t nonce[8], uint8_t* payload, size_t length) {
 bool sendCommand(uint8_t command, const uint8_t* data, size_t length) {
   if (!isConnected()) {
     Serial.println("Room light not connected!");
+    connectNow();
     return false;
   }
 
@@ -247,7 +251,6 @@ LampCallbacks callbacks;
 void startConnecting() {
   Serial.println("Connecting to room light...");
 
-  attemptedOnce = true;
   lastAttemptMs = millis();
 
   // connect() deletes the old services, so drop our pointers into them first.
@@ -260,8 +263,16 @@ void startConnecting() {
     attemptPending = false;
     // Usually the LED lamp is connecting right now (only one attempt can
     // run at a time), so try again in a second.
-    lastAttemptMs = millis() - ROOM_LIGHT_RETRY_INTERVAL_MS + 1000;
+    nextAttemptMs = millis() + 1000;
     Serial.println("Could not start connecting to room light.");
+    return;
+  }
+
+  // If this attempt fails, wait retryDelayMs, and twice as long after the next one.
+  nextAttemptMs = millis() + retryDelayMs;
+  retryDelayMs = min(retryDelayMs * 2, BLE_RETRY_MAX_MS);
+  if (retryDelayMs >= 240000) {
+    rgbLedWrite(STATUS_LED_PIN, 0, 0, 0);
   }
 }
 
@@ -290,6 +301,12 @@ bool setupConnection() {
   }
 
   ready = true;
+
+  // Reachable again: after the next drop, retry right away and start
+  // the backoff from the beginning.
+  retryDelayMs = BLE_RETRY_MIN_MS;
+  nextAttemptMs = millis();
+
   Serial.println("Room light ready.");
 
   readState();
@@ -323,15 +340,33 @@ void loop() {
 
   if (ready || attemptPending || client->isConnected()) return;
 
-  if (attemptedOnce && millis() - lastAttemptMs < ROOM_LIGHT_RETRY_INTERVAL_MS) {
-    return;
-  }
+  // Signed difference keeps working when millis() wraps around.
+  if ((long)(millis() - nextAttemptMs) < 0) return;
 
   startConnecting();
 }
 
 bool isConnected() {
   return ready && client && client->isConnected() && commandChar;
+}
+
+void connectNow() {
+  retryDelayMs = BLE_RETRY_MIN_MS;
+  nextAttemptMs = millis();
+}
+
+bool ensureConnected() {
+  if (isConnected()) return true;
+
+  connectNow();
+
+  unsigned long start = millis();
+  while (!isConnected() &&
+         millis() - start < ROOM_LIGHT_CONNECT_TIMEOUT_MS + 2000) {
+    loop();
+    delay(10);
+  }
+  return isConnected();
 }
 
 bool powerOn() {

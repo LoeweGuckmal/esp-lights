@@ -10,6 +10,13 @@ void sendNotConnected(WebServer& server) {
   sendError(server, 503, "LED lamp not connected");
 }
 
+// Connects first if needed, which can take a few seconds.
+bool ensureLampConnected(WebServer& server) {
+  if (LedLamp::ensureConnected()) return true;
+  sendNotConnected(server);
+  return false;
+}
+
 void handleRgb(WebServer& server) {
   int r = -1, g = -1, b = -1, brightness = -1;
 
@@ -24,6 +31,8 @@ void handleRgb(WebServer& server) {
     sendError(server, 400, "Provide 'r', 'g' and 'b'");
     return;
   }
+
+  if (!ensureLampConnected(server)) return;
 
   // The lamp has no brightness setting, so scale the color instead.
   int scale = brightness < 0 ? 100 : brightness;
@@ -43,6 +52,7 @@ void handleWhite(WebServer& server) {
   int brightness = 70;
 
   if (!readIntParam(server, "brightness", brightness, 1, 100)) return;
+  if (!ensureLampConnected(server)) return;
 
   if (!LedLamp::setWhite((brightness * 255 + 50) / 100)) {
     sendNotConnected(server);
@@ -53,6 +63,7 @@ void handleWhite(WebServer& server) {
 }
 
 void handleOn(WebServer& server) {
+  if (!ensureLampConnected(server)) return;
   if (!LedLamp::powerOn()) {
     sendNotConnected(server);
     return;
@@ -61,6 +72,7 @@ void handleOn(WebServer& server) {
 }
 
 void handleOff(WebServer& server) {
+  if (!ensureLampConnected(server)) return;
   if (!LedLamp::powerOff()) {
     sendNotConnected(server);
     return;
@@ -71,8 +83,13 @@ void handleOff(WebServer& server) {
 void handleStatus(WebServer& server) {
   bool connected = LedLamp::isConnected();
 
-  // Ask the lamp for an updated status notification.
-  if (connected) LedLamp::requestStatus();
+  // Ask the lamp for an updated status notification. Don't wait for a
+  // connection here, so the page loads fast.
+  if (connected) {
+    LedLamp::requestStatus();
+  } else {
+    LedLamp::connectNow();
+  }
 
   // This is the latest notification received so far.
   LedLamp::Status status = LedLamp::lastStatus();
