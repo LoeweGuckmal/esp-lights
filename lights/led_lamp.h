@@ -21,12 +21,21 @@ struct Status {
 void begin();
 
 // Call from loop(). Connects in the background and reconnects after a
-// dropped connection, retrying every LED_LAMP_RETRY_INTERVAL_MS.
+// dropped connection. While the lamp is unreachable, the wait between
+// attempts grows from BLE_RETRY_MIN_MS to BLE_RETRY_MAX_MS.
 // Only blocks briefly (service discovery) right after a connection is made.
 void loop();
 
 // True when the lamp is connected and ready for commands.
 bool isConnected();
+
+// Try to connect right away and restart the backoff. Never blocks.
+// Commands call this themselves when the lamp is not connected.
+void connectNow();
+
+// If not connected: tries right away and waits until the lamp is ready,
+// at most LED_LAMP_CONNECT_TIMEOUT_MS + 2 s. Blocks everything meanwhile.
+bool ensureConnected();
 
 bool setColor(uint8_t r, uint8_t g, uint8_t b);
 bool setWhite(uint8_t white);  // just all rgb values the same

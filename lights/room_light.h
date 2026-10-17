@@ -22,12 +22,21 @@ struct State {
 void begin();
 
 // Call from loop(). Connects and pairs in the background and reconnects
-// after a dropped connection, retrying every ROOM_LIGHT_RETRY_INTERVAL_MS.
+// after a dropped connection. While the lamp is unreachable, the wait
+// between attempts grows from BLE_RETRY_MIN_MS to BLE_RETRY_MAX_MS.
 // Pairing blocks for a moment right after a connection is made.
 void loop();
 
 // True when the lamp is connected, paired and ready for commands.
 bool isConnected();
+
+// Try to connect right away and restart the backoff. Never blocks.
+// Commands call this themselves when the lamp is not connected.
+void connectNow();
+
+// If not connected: tries right away and waits until the lamp is ready,
+// at most ROOM_LIGHT_CONNECT_TIMEOUT_MS + 2 s. Blocks everything meanwhile.
+bool ensureConnected();
 
 bool powerOn();
 bool powerOff();
