@@ -9,13 +9,23 @@ namespace {
 void handleColor(WebServer& server) {
   String body = server.arg("plain");
 
+  int white;
+
+  if (getJsonInt(body, "white", white)) {
+    LedLamp::setWhite((uint8_t)white);
+
+    server.send(200, "application/json",
+                "{\"sent\":true,\"white\":" + String(white) + "}");
+    return;
+  }
+
   int r, g, b;
 
   if (!getJsonInt(body, "r", r) ||
       !getJsonInt(body, "g", g) ||
       !getJsonInt(body, "b", b)) {
     server.send(400, "application/json",
-                "{\"error\":\"Expected RGB values from 0 to 255\"}");
+                "{\"error\":\"Expected RGB or white values from 0 to 255\"}");
     return;
   }
 
@@ -43,14 +53,17 @@ void handleOff(WebServer& server) {
 }
 
 void handleStatus(WebServer& server) {
+  bool connected = LedLamp::isConnected();
+
   // Ask the lamp for an updated status notification.
-  LedLamp::requestStatus();
+  if (connected) LedLamp::requestStatus();
 
   // This is the latest notification received so far.
   LedLamp::Status status = LedLamp::lastStatus();
 
   String response = "{";
-  response += "\"received\":" + String(status.received ? "true" : "false");
+  response += "\"connected\":" + String(connected ? "true" : "false");
+  response += ",\"received\":" + String(status.received ? "true" : "false");
   response += ",\"on\":" + String(status.on ? "true" : "false");
   response += ",\"rgb\":{\"r\":" + String(status.r) +
               ",\"g\":" + String(status.g) +
