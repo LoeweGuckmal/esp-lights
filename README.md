@@ -7,7 +7,7 @@ ESP32-S3 firmware that controls the lights in my room over Wi-Fi.
 
 ## Requirements
 
-- ESP32-S3 DevKit (board **ESP32S3 Dev Module**). The onboard RGB LED (GPIO 48) turns blue on boot.
+- ESP32-S3 DevKit (board **ESP32S3 Dev Module**). The onboard RGB LED (GPIO 48) is switched off on boot.
 - [Arduino IDE 2](https://www.arduino.cc/en/software) or `arduino-cli`
 - Board package **esp32** by Espressif, 3.x (built with 3.3.12)
 - Library **NimBLE-Arduino** 2.x (built with 2.5.1)
@@ -61,6 +61,7 @@ without extra include paths) files at the top level of the sketch.
 | ------ | ------------- | ----------------------------- | ------------------------------------------ |
 | GET    | `/led`        |                               | Web control page                           |
 | POST   | `/led/color`  | `{"r":255,"g":120,"b":0}`     | Set the color, each value 0–255            |
+| POST   | `/led/color`  | `{"white":200}`               | White LEDs only (RGB off), 0–255           |
 | GET    | `/led/on`     |                               | Turn the lamp on                           |
 | GET    | `/led/off`    |                               | Turn the lamp off                          |
 | GET    | `/led/status` |                               | Last status the lamp reported (see below)  |
@@ -73,9 +74,11 @@ curl -X POST http://<ip>/led/color -H "Content-Type: application/json" -d '{"r":
 
 `/led/status` asks the lamp for a fresh status and immediately returns the **last one received**.
 `age_ms` tells you how old it is; call it again to get the newer values.
+`connected` tells you whether the lamp is reachable right now. While it is `false`, the other
+values are the last ones received before the connection dropped (or zeros if there never was one).
 
 ```json
-{"received":true,"on":true,"rgb":{"r":255,"g":0,"b":0},"white":0,"mode":65,"speed":16,"age_ms":1200}
+{"connected":true,"received":true,"on":true,"rgb":{"r":255,"g":0,"b":0},"white":0,"mode":65,"speed":16,"age_ms":1200}
 ```
 
 All errors are returned as JSON, e.g. `{"error":"Not found"}` with status 404.
@@ -104,12 +107,15 @@ Send a single character in the serial monitor (115200 baud):
 3. **Web page** (optional) – `room_light_page.h`, like `led_page.h`.
 4. **Settings** – add pins, addresses etc. to `config.h`.
 5. **Wire it up in `lights.ino`** – call `RoomLight::begin()` in `setup()` and
-   `registerRoomLightRoutes(httpServer());` before `startHttpServer()`.
+   `registerRoomLightRoutes(httpServer());` before `startHttpServer()`. If the driver needs
+   regular work (reconnecting, timers), give it a `RoomLight::loop()` like `LedLamp::loop()`
+   and call it from `loop()`. Never block in `begin()` or `loop()` for long: everything shares one loop.
 6. **Serial commands** (optional) – add cases in `serial_console.cpp`.
 
 ## Known limitations
 
-- If the LED lamp can't be reached at boot, `setup()` stops before Wi-Fi and the web server start.
-  Restart the ESP once the lamp is on. A dropped connection is not re-established automatically.
-- The **White** mode on the `/led` page sends `{"white":…}`, which `/led/color` does not accept yet
-  (it answers with 400).
+- If the LED lamp is unreachable, Wi-Fi and the web server still run. The ESP retries connecting
+  every 15 s (`LED_LAMP_RETRY_INTERVAL_MS` in `config.h`) and right away after a dropped connection,
+  so it can take up to ~15 s until the lamp responds after it is switched on.
+  Commands sent while it is disconnected are dropped, yet `/led/color`, `/led/on` and `/led/off`
+  still answer `{"sent":true,…}`. Check `connected` in `/led/status`.

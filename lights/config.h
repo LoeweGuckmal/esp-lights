@@ -17,3 +17,7 @@ constexpr uint16_t HTTP_PORT = 80;
 // Address from your working Linux Python script
 constexpr char LED_LAMP_ADDRESS[] = "C2:14:20:00:C4:0E";
 constexpr uint8_t LED_LAMP_ADDRESS_TYPE = 0;  // 0 = public address
+// How long one connection attempt may take, and how often to retry
+// while the lamp is unreachable (both in milliseconds).
+constexpr uint32_t LED_LAMP_CONNECT_TIMEOUT_MS = 5000;
+constexpr uint32_t LED_LAMP_RETRY_INTERVAL_MS = 15000;

@@ -13,7 +13,7 @@
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  // rgbLedWrite(STATUS_LED_PIN, 0, 0, 0);
+  rgbLedWrite(STATUS_LED_PIN, 0, 0, 0);
 
   Serial.println("\nESP32-S3 lights controller");
 
@@ -21,10 +21,9 @@ void setup() {
   NimBLEDevice::init(BLE_DEVICE_NAME);
   NimBLEDevice::setPower(ESP_PWR_LVL_P3);  // moderate transmit power
 
-  if (!LedLamp::connect()) {
-    Serial.println("Setup failed. Check the address and lamp.");
-    return;
-  }
+  // Connects in the background from loop(); the rest keeps working
+  // while the lamp is off or out of range.
+  LedLamp::begin();
 
   printSerialHelp();
 
@@ -37,6 +36,7 @@ void setup() {
 void loop() {
   handleSerialCommands();
   handleHttpClients();
+  LedLamp::loop();
 
   delay(10);
 }
