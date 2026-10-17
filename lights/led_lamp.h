@@ -29,7 +29,7 @@ void loop();
 bool isConnected();
 
 bool setColor(uint8_t r, uint8_t g, uint8_t b);
-bool setWhite(uint8_t white);  // dedicated white LEDs, RGB off
+bool setWhite(uint8_t white);  // just all rgb values the same
 bool powerOn();
 bool powerOff();
 

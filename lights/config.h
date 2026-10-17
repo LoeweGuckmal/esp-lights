@@ -21,3 +21,9 @@ constexpr uint8_t LED_LAMP_ADDRESS_TYPE = 0;  // 0 = public address
 // while the lamp is unreachable (both in milliseconds).
 constexpr uint32_t LED_LAMP_CONNECT_TIMEOUT_MS = 5000;
 constexpr uint32_t LED_LAMP_RETRY_INTERVAL_MS = 15000;
+
+// --- Room light (AwoX mesh bulb, BLE) ---
+// Mesh name and password are in secrets.h.
+constexpr char ROOM_LIGHT_ADDRESS[] = "A4:C1:38:43:06:4D";
+constexpr uint32_t ROOM_LIGHT_CONNECT_TIMEOUT_MS = 5000;
+constexpr uint32_t ROOM_LIGHT_RETRY_INTERVAL_MS = 15000;

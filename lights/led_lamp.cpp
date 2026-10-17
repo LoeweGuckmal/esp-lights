@@ -129,6 +129,9 @@ void startConnecting() {
   attemptPending = true;
   if (!client->connect(lampAddress, true, true)) {
     attemptPending = false;
+    // Usually the room light is connecting right now (only one attempt can
+    // run at a time), so try again in a second.
+    lastAttemptMs = millis() - LED_LAMP_RETRY_INTERVAL_MS + 1000;
     Serial.println("Could not start connecting to lamp.");
   }
 }
@@ -229,7 +232,6 @@ bool setColor(uint8_t r, uint8_t g, uint8_t b) {
   const uint8_t command[] = {
     0x56, r, g, b, 0x00, 0xF0, 0xAA
   };
-  rgbLedWrite(STATUS_LED_PIN, r, g, b);
 
   return sendCommand(command, sizeof(command));
 }

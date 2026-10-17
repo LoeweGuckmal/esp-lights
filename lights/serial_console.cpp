@@ -3,10 +3,19 @@
 #include <Arduino.h>
 
 #include "led_lamp.h"
+#include "room_light.h"
+
+static void printRoomLightState() {
+  RoomLight::State s = RoomLight::readState();
+  Serial.printf("Room light: connected=%d status=%d mode=%d rgb=(%d,%d,%d) "
+                "color_brightness=%d white_temp=%d white_brightness=%d\n",
+                RoomLight::isConnected(), s.status, s.mode, s.r, s.g, s.b,
+                s.colorBrightness, s.whiteTemp, s.whiteBrightness);
+}
 
 void printSerialHelp() {
   Serial.println();
-  Serial.println("Commands:");
+  Serial.println("LED lamp:");
   Serial.println("  r = Red");
   Serial.println("  g = Green");
   Serial.println("  b = Blue");
@@ -16,6 +25,10 @@ void printSerialHelp() {
   Serial.println("  n = Power on");
   Serial.println("  f = Power off");
   Serial.println("  s = Request status");
+  Serial.println("Room light:");
+  Serial.println("  N = Power on");
+  Serial.println("  F = Power off");
+  Serial.println("  S = Print status");
   Serial.println("  ? = Show commands");
   Serial.println();
 }
@@ -35,6 +48,9 @@ void handleSerialCommands() {
     case 'n': LedLamp::powerOn(); break;
     case 'f': LedLamp::powerOff(); break;
     case 's': LedLamp::requestStatus(); break;
+    case 'N': RoomLight::powerOn(); break;
+    case 'F': RoomLight::powerOff(); break;
+    case 'S': printRoomLightState(); break;
     case '?': printSerialHelp(); break;
     case '\r':
     case '\n':

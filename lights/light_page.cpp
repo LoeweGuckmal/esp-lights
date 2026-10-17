@@ -1,15 +1,15 @@
-#pragma once
+#include "light_page.h"
 
-#include <Arduino.h>
+namespace {
 
-// Control page served at GET /led
-const char LED_PAGE[] PROGMEM = R"rawliteral(
+// %TITLE%, %BASE% and %TEMP_HIDDEN% are filled in by sendLightPage().
+const char LIGHT_PAGE[] = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LED Control</title>
+<title>%TITLE%</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -23,15 +23,15 @@ const char LED_PAGE[] PROGMEM = R"rawliteral(
     background: #20232b;
   }
   h2 { margin-top: 0; }
-  .modes { display: flex; gap: 8px; margin-bottom: 24px; }
+  .row { display: flex; gap: 8px; margin-bottom: 24px; }
   button, input {
     font: inherit; border-radius: 9px;
   }
-  .modes button {
+  .row button {
     flex: 1; padding: 10px; border: 0;
-    background: #343844; color: #eee;
+    background: #343844; color: #eee; cursor: pointer;
   }
-  .modes button.active, #apply {
+  .row button.active, #apply {
     background: #7c83ff; color: white;
   }
   .field { margin: 18px 0; }
@@ -59,8 +59,12 @@ const char LED_PAGE[] PROGMEM = R"rawliteral(
 </head>
 <body>
 <main>
-  <h2>LED Control</h2>
-  <div class="modes">
+  <h2>%TITLE%</h2>
+  <div class="row">
+    <button onclick="send('/on')">On</button>
+    <button onclick="send('/off')">Off</button>
+  </div>
+  <div class="row">
     <button id="rgbMode" class="active" onclick="setMode('rgb')">RGB</button>
     <button id="whiteMode" onclick="setMode('white')">White</button>
   </div>
@@ -81,11 +85,16 @@ const char LED_PAGE[] PROGMEM = R"rawliteral(
   </section>
 
   <section id="whiteFields" hidden>
-    <div class="field">
-      <label>White intensity <input id="wNum" type="number" min="0" max="255" value="255"></label>
-      <input id="w" type="range" min="0" max="255" value="255">
+    <div class="field" %TEMP_HIDDEN%>
+      <label>Temperature (cold to warm) <input id="tNum" type="number" min="0" max="100" value="50"></label>
+      <input id="t" type="range" min="0" max="100" value="50">
     </div>
   </section>
+
+  <div class="field">
+    <label>Brightness <input id="lNum" type="number" min="1" max="100" value="100"></label>
+    <input id="l" type="range" min="1" max="100" value="100">
+  </div>
 
   <div id="preview"></div>
   <button id="apply" onclick="applyColor()">Apply</button>
@@ -93,11 +102,14 @@ const char LED_PAGE[] PROGMEM = R"rawliteral(
 </main>
 
 <script>
+const base = '%BASE%';
 let mode = 'rgb';
 
+// Current value of an input, clamped to its min/max.
 function value(id) {
-  return Math.max(0, Math.min(255,
-    Number(document.getElementById(id).value) || 0));
+  const el = document.getElementById(id);
+  const v = Math.round(Number(el.value) || 0);
+  return Math.max(Number(el.min), Math.min(Number(el.max), v));
 }
 
 function sync(id, source) {
@@ -107,7 +119,7 @@ function sync(id, source) {
   updatePreview();
 }
 
-['r', 'g', 'b', 'w'].forEach(id => {
+['r', 'g', 'b', 't', 'l'].forEach(id => {
   document.getElementById(id).addEventListener('input', () =>
     sync(id + 'Num', id));
   document.getElementById(id + 'Num').addEventListener('input', () =>
@@ -124,38 +136,71 @@ function setMode(next) {
 }
 
 function updatePreview() {
-  const c = mode === 'rgb'
-    ? [value('r'), value('g'), value('b')]
-    : [value('w'), value('w'), value('w')];
+  let c;
+  if (mode === 'rgb') {
+    c = [value('r'), value('g'), value('b')];
+  } else {
+    const cold = [200, 220, 255], warm = [255, 180, 100];
+    const t = value('t') / 100;
+    c = cold.map((v, i) => v + (warm[i] - v) * t);
+  }
+  const l = value('l') / 100;
 
   document.getElementById('preview').style.background =
-    `rgb(${c.join(',')})`;
+    `rgb(${c.map(v => Math.round(v * l)).join(',')})`;
 }
 
-async function applyColor() {
-  const payload = mode === 'rgb'
-    ? { r: value('r'), g: value('g'), b: value('b') }
-    : { white: value('w') };
-
+async function send(path, payload) {
   const status = document.getElementById('status');
   status.textContent = 'Sending...';
 
   try {
-    const response = await fetch('/led/color', {
+    const response = await fetch(base + path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload || {})
     });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || 'HTTP ' + response.status);
+    status.textContent = 'Done';
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+  }
+}
 
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    status.textContent = 'Color applied successfully';
+function applyColor() {
+  if (mode === 'rgb') {
+    send('/rgb', { r: value('r'), g: value('g'), b: value('b'), brightness: value('l') });
+  } else {
+    send('/white', { temperature: value('t'), brightness: value('l') });
+  }
+}
+
+async function showStatus() {
+  const status = document.getElementById('status');
+  try {
+    const data = await (await fetch(base + '/status')).json();
+    status.textContent = !data.connected ? 'Lamp not connected'
+      : 'Connected, lamp is ' + (data.state.is_on ? 'on' : 'off');
   } catch (e) {
     status.textContent = 'Error: ' + e.message;
   }
 }
 
 updatePreview();
+showStatus();
 </script>
 </body>
 </html>
 )rawliteral";
+
+}  // namespace
+
+void sendLightPage(WebServer& server, const char* title, const char* basePath,
+                   bool hasTemperature) {
+  String page = LIGHT_PAGE;
+  page.replace("%TITLE%", title);
+  page.replace("%BASE%", basePath);
+  page.replace("%TEMP_HIDDEN%", hasTemperature ? "" : "hidden");
+  server.send(200, "text/html", page);
+}
