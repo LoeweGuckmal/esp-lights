@@ -7,7 +7,7 @@
 namespace {
 
 void sendNotConnected(WebServer& server) {
-  sendError(server, 503, "LED lamp not connected");
+  sendError(server, 503, "LED strip not connected");
 }
 
 // Connects first if needed, which can take a few seconds.
@@ -118,6 +118,6 @@ void registerLedRoutes(WebServer& server) {
   server.on("/led/off", HTTP_ANY, [&server]() { handleOff(server); });
   server.on("/led/status", HTTP_ANY, [&server]() { handleStatus(server); });
   server.on("/led", HTTP_GET, [&server]() {
-    sendLightPage(server, "LED Lamp", "/led", false);
+    sendLightPage(server, "LED Strip", "/led", false);
   });
 }

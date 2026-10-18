@@ -2,7 +2,7 @@
 
 ESP32-S3 firmware that controls the lights in my room over Wi-Fi.
 
-- **LED lamp** – a Bluetooth (BLE) RGB lamp
+- **LED strip** – a Bluetooth (BLE) RGB LED strip under the bed, for ambient light
 - **Room light** – an AwoX mesh bulb (BLE), ported from my Python `awoxmeshlight` project
 
 Both are controlled through the same kind of HTTP API and a small web page each.
@@ -21,7 +21,7 @@ weekday like the sleep schedule on the iPhone.
 1. Copy `lights/secrets.example.h` to `lights/secrets.h` and enter your Wi-Fi name and password,
    and the mesh name and password of the room light (`MESH_NAME` / `MESH_PASSWORD` from the
    Python project). `secrets.h` is in `.gitignore`, so your passwords never get committed.
-2. Check `lights/config.h`, especially the BLE addresses of both lamps.
+2. Check `lights/config.h`, especially the BLE addresses of both lights.
 3. Open `lights/lights.ino` in the Arduino IDE, select **ESP32S3 Dev Module** and the right port, and upload.
 4. Open the serial monitor at 115200 baud. Once Wi-Fi is connected it prints the IP address.
 5. Open `http://<ip>/led`, `http://<ip>/room` or `http://<ip>/alarm` in a browser.
@@ -42,7 +42,7 @@ arduino-cli upload --fqbn esp32:esp32:esp32s3 -p COM3 lights
 ```
 lights/
 ├── lights.ino           setup() and loop(): starts all modules, nothing else
-├── config.h             pins, BLE device name, HTTP port, lamp addresses
+├── config.h             pins, BLE device name, HTTP port, light addresses
 ├── secrets.h            Wi-Fi and mesh credentials (not in git, copy from secrets.example.h)
 ├── secrets.example.h    template for secrets.h
 ├── wifi_connection.*    connects to Wi-Fi
@@ -50,7 +50,7 @@ lights/
 ├── http_utils.*         read request parameters, send JSON answers
 ├── light_page.*         HTML control page shared by all lights
 ├── serial_console.*     single-character test commands over the serial monitor
-├── led_lamp.*           LED lamp driver: BLE connection, commands, status (namespace LedLamp)
+├── led_lamp.*           LED strip driver: BLE connection, commands, status (namespace LedLamp)
 ├── led_http.*           HTTP routes under /led
 ├── room_light.*         room light driver: BLE connection, pairing, encryption (namespace RoomLight)
 ├── room_light_http.*    HTTP routes under /room
@@ -102,7 +102,7 @@ The bridge's Node client (`awoxLamp.js`) works against the ESP: set
 `AWOX_BRIDGE_URL=http://<ip>/room`. Only `connect()` and `disconnect()` don't exist here,
 because the ESP keeps the lamp connected by itself.
 
-### LED lamp – `/led`
+### LED strip – `/led`
 
 | Path          | Parameters                                                          |
 | ------------- | ------------------------------------------------------------------- |
@@ -113,7 +113,7 @@ because the ESP keeps the lamp connected by itself.
 | `/led/white`  | optional `brightness` (1–100, default 70)                           |
 | `/led/status` | –                                                                   |
 
-`/led/status` asks the lamp for a fresh status and immediately returns the **last one received**.
+`/led/status` asks the strip for a fresh status and immediately returns the **last one received**.
 `age_ms` tells you how old it is; call it again to get the newer values. While `connected` is
 `false`, the values are the last ones received before the connection dropped (or zeros if there
 never was one).
@@ -176,7 +176,7 @@ curl "http://<ip>/alarm/save?days=62&hour=6&minute=45&fade=20"
 
 Send a single character in the serial monitor (115200 baud):
 
-| Key | LED lamp       | Key | LED lamp       | Key | Room light   |
+| Key | LED strip      | Key | LED strip      | Key | Room light   |
 | --- | -------------- | --- | -------------- | --- | ------------ |
 | `r` | Red            | `n` | Power on       | `N` | Power on     |
 | `g` | Green          | `f` | Power off      | `F` | Power off    |

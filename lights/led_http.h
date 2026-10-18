@@ -2,7 +2,7 @@
 
 #include <WebServer.h>
 
-// HTTP routes for the LED lamp. Same design as the room light (see README):
+// HTTP routes for the LED strip. Same design as the room light (see README):
 // GET or POST, parameters in the query string or as a JSON body.
 //   GET  /led          control page
 //        /led/rgb      r, g, b (0-255), optional brightness (1-100)

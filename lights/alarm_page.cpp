@@ -12,7 +12,7 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
 <title>Alarms</title>
 <style>
   * { box-sizing: border-box; }
-  html { color-scheme: dark; }
+  html { color-scheme: dark; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body {
     margin: 0; padding: 16px 16px 48px;
     font: 16px system-ui, -apple-system, sans-serif;
@@ -20,7 +20,7 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
     -webkit-tap-highlight-color: transparent;
   }
   main { max-width: 420px; margin: 0 auto; }
-  nav { display: flex; justify-content: center; gap: 4px; }
+  nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
   nav a {
     padding: 7px 14px; border-radius: 999px;
     color: #b8bbc8; text-decoration: none; font-size: 14px;
@@ -67,7 +67,7 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
   .chip.sun { background: rgba(255, 176, 112, .2); color: #ffcf9e; }
   .when { margin-top: 14px; color: #d4d6e0; }
   .big {
-    font-size: 68px; font-weight: 200; line-height: 1.05;
+    font-size: clamp(52px, 18vw, 68px); font-weight: 200; line-height: 1.05;
     letter-spacing: -1px; font-variant-numeric: tabular-nums;
   }
   .big.dim { color: #5d6173; }
@@ -76,8 +76,8 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
     text-decoration: line-through; text-decoration-thickness: 3px;
   }
   .sub { margin: 6px 0 0; color: #b8bbc8; font-size: 14px; line-height: 1.5; }
-  .actions { display: flex; gap: 8px; margin-top: 18px; }
-  .actions button { flex: 1; padding: 11px; background: #343844; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .actions button { flex: 1 1 7.5em; padding: 11px 8px; background: #343844; }
   .actions button.primary { background: #7c83ff; color: #fff; }
   .bar {
     height: 6px; border-radius: 3px; overflow: hidden;
@@ -94,20 +94,22 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
     display: flex; align-items: baseline; justify-content: space-between;
     margin: 28px 4px 10px;
   }
-  .schedule {
-    display: flex; gap: 12px; align-items: flex-start;
-    cursor: pointer; transition: background .15s;
-  }
+  /* The switch sits in the corner, so the day dots get the full width. */
+  .schedule { position: relative; cursor: pointer; transition: background .15s; }
   .schedule:hover { background: #252832; }
-  .schedule .info { flex: 1; min-width: 0; }
+  .schedule .switch { position: absolute; top: 18px; right: 18px; }
   .schedule .time {
+    padding-right: 64px;
     font-size: 38px; font-weight: 300; line-height: 1.1;
     font-variant-numeric: tabular-nums;
   }
   .schedule.disabled .info { opacity: .4; }
-  .dots { display: flex; gap: 5px; margin: 10px 0 8px; }
+  .dots {
+    display: grid; grid-template-columns: repeat(7, minmax(0, 28px));
+    gap: 5px; margin: 10px 0 8px;
+  }
   .dots span {
-    width: 28px; height: 28px; border-radius: 50%;
+    width: 100%; aspect-ratio: 1; border-radius: 50%;
     display: grid; place-items: center;
     font-size: 11px; background: #2a2d37; color: #6f7386;
   }
@@ -150,7 +152,7 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
 
   /* Sheets: slide up from the bottom on phones, centered on wide screens */
   dialog {
-    width: 100%; max-width: 440px; max-height: 92vh;
+    width: 100%; max-width: 440px; max-height: 92vh; max-height: 92dvh;
     margin: auto auto 0; padding: 0; border: 0;
     border-radius: 22px 22px 0 0;
     background: #1b1e25; color: #eee;
@@ -168,6 +170,7 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
     padding: 14px 0 10px; background: #1b1e25;
   }
   .sheetHead h4 { margin: 0; font-size: 17px; }
+  .sheetHead h4:focus-visible { outline: none; }
   .link { background: none; padding: 6px 2px; color: #b9bdff; }
   .link.strong { font-weight: 600; }
   .field { margin: 18px 0 22px; }
@@ -175,10 +178,12 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
     display: flex; justify-content: space-between; align-items: baseline;
     margin-bottom: 10px; color: #d4d6e0;
   }
-  .days { display: flex; justify-content: space-between; gap: 4px; }
+  .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
   .day {
-    position: relative; width: 42px; height: 42px; border-radius: 50%;
-    background: #2a2d37; color: #b8bbc8; font-size: 14px;
+    position: relative; justify-self: center;
+    width: 100%; max-width: 44px; aspect-ratio: 1; padding: 0;
+    border-radius: 50%; background: #2a2d37; color: #b8bbc8;
+    font-size: clamp(12px, 3.8vw, 14px);
   }
   .day.on { background: #7c83ff; color: #fff; }
   .day.taken::after {
@@ -187,13 +192,22 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
     border-radius: 50%; background: #8a8ea0;
   }
   .hint { min-height: 18px; margin: 16px 0 0; font-size: 13px; color: #a6aabb; line-height: 1.45; }
-  input[type=time] {
-    display: block; width: 100%; padding: 8px 12px;
-    font: 200 52px system-ui, -apple-system, sans-serif;
-    font-variant-numeric: tabular-nums; text-align: center;
-    background: #111318; color: #fff;
-    border: 1px solid #343844; border-radius: 16px;
+  /* Safari on iPhone draws its own time control, which ignores the width
+     and the centering unless appearance is reset. The box around it clips
+     whatever still sticks out. */
+  .timeBox {
+    overflow: hidden;
+    background: #111318; border: 1px solid #343844; border-radius: 16px;
   }
+  input[type=time] {
+    display: block; width: 100%; min-width: 0; max-width: 100%;
+    -webkit-appearance: none; appearance: none;
+    margin: 0; padding: 8px 12px; line-height: 1.2;
+    font: 200 clamp(38px, 14vw, 52px) system-ui, -apple-system, sans-serif;
+    font-variant-numeric: tabular-nums; text-align: center;
+    background: transparent; color: #fff; border: 0;
+  }
+  input[type=time]::-webkit-date-and-time-value { margin: 0; text-align: center; }
   input[type=time]::-webkit-calendar-picker-indicator {
     width: 22px; height: 22px; opacity: .45; cursor: pointer;
   }
@@ -226,11 +240,20 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
   }
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
   #toast.error { background: #ff7a6b; color: #fff; }
+
+  /* Small phones, like an iPhone mini with larger display zoom */
+  @media (max-width: 360px) {
+    body { padding-left: 12px; padding-right: 12px; }
+    .card { padding: 16px; }
+    #next { padding: 18px; }
+    .schedule .switch { top: 16px; right: 16px; }
+    .sheet { padding: 0 16px 22px; }
+  }
 </style>
 </head>
 <body>
 <nav>
-  <a href="/led">LED Lamp</a>
+  <a href="/led">LED Strip</a>
   <a href="/room">Room Light</a>
   <a href="/alarm">Alarms</a>
 </nav>
@@ -264,7 +287,7 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
   <div class="sheet">
     <div class="sheetHead">
       <button type="button" class="link" onclick="closeSheet('editor')">Cancel</button>
-      <h4 id="edTitle">New schedule</h4>
+      <h4 id="edTitle" tabindex="-1" autofocus>New schedule</h4>
       <button type="button" class="link strong" id="edSave" onclick="saveSchedule()">Save</button>
     </div>
 
@@ -276,7 +299,7 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
 
     <div class="field">
       <div class="fieldHead"><label for="edTime">Wake up</label></div>
-      <input id="edTime" type="time" required>
+      <div class="timeBox"><input id="edTime" type="time" required></div>
     </div>
 
     <div class="field">
@@ -309,11 +332,11 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
   <div class="sheet">
     <div class="sheetHead">
       <button type="button" class="link" onclick="closeSheet('nextSheet')">Cancel</button>
-      <h4 id="nxTitle">Next alarm only</h4>
+      <h4 id="nxTitle" tabindex="-1" autofocus>Next alarm only</h4>
       <button type="button" class="link strong" id="nxSave" onclick="saveNext()">Save</button>
     </div>
     <p id="nxDay" class="center"></p>
-    <input id="nxTime" type="time" required aria-label="Alarm time">
+    <div class="timeBox"><input id="nxTime" type="time" required aria-label="Alarm time"></div>
     <p id="nxNote" class="hint center"></p>
   </div>
 </dialog>
@@ -327,7 +350,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const WEEK = [1, 2, 3, 4, 5, 6, 0];  // Monday first
 const FADES = [0, 5, 10, 15, 20, 30];
 // Same as AlarmClock::DEFAULT_* in alarm_clock.h
-const DEFAULTS = { fade: 15, brightness: 100, temperature: 50 };
+const DEFAULTS = { fade: 15, brightness: 70, temperature: 50 };
 
 const $ = id => document.getElementById(id);
 let st = null;  // latest status from the ESP

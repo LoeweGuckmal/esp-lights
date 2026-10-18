@@ -12,12 +12,13 @@ const char LIGHT_PAGE[] = R"rawliteral(
 <title>%TITLE%</title>
 <style>
   * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body {
     margin: 0; padding: 16px;
     font: 16px system-ui, sans-serif;
     background: #111318; color: #eee;
   }
-  nav { display: flex; justify-content: center; gap: 4px; }
+  nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
   nav a {
     padding: 7px 14px; border-radius: 999px;
     color: #b8bbc8; text-decoration: none; font-size: 14px;
@@ -61,11 +62,15 @@ const char LIGHT_PAGE[] = R"rawliteral(
     border: 0; cursor: pointer;
   }
   #status { color: #b8bbc8; font-size: 14px; }
+  @media (max-width: 360px) {
+    body { padding: 12px; }
+    main { padding: 18px; }
+  }
 </style>
 </head>
 <body>
 <nav>
-  <a href="/led">LED Lamp</a>
+  <a href="/led">LED Strip</a>
   <a href="/room">Room Light</a>
   <a href="/alarm">Alarms</a>
 </nav>
@@ -103,8 +108,8 @@ const char LIGHT_PAGE[] = R"rawliteral(
   </section>
 
   <div class="field">
-    <label>Brightness <input id="lNum" type="number" min="1" max="100" value="100"></label>
-    <input id="l" type="range" min="1" max="100" value="100">
+    <label>Brightness <input id="lNum" type="number" min="1" max="100" value="70"></label>
+    <input id="l" type="range" min="1" max="100" value="70">
   </div>
 
   <div id="preview"></div>
@@ -191,8 +196,8 @@ async function showStatus() {
   const status = document.getElementById('status');
   try {
     const data = await (await fetch(base + '/status')).json();
-    status.textContent = !data.connected ? 'Lamp not connected'
-      : 'Connected, lamp is ' + (data.state.is_on ? 'on' : 'off');
+    status.textContent = !data.connected ? 'Not connected'
+      : 'Connected, light is ' + (data.state.is_on ? 'on' : 'off');
   } catch (e) {
     status.textContent = 'Error: ' + e.message;
   }
