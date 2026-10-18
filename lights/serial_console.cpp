@@ -16,7 +16,7 @@ static void printRoomLightState() {
 
 void printSerialHelp() {
   Serial.println();
-  Serial.println("LED lamp:");
+  Serial.println("LED strip:");
   Serial.println("  r = Red");
   Serial.println("  g = Green");
   Serial.println("  b = Blue");

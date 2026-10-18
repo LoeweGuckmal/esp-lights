@@ -13,7 +13,7 @@ constexpr int MAX_SCHEDULES = 7;  // each one has at least one day
 
 // Light settings for new schedules and one-time alarms
 constexpr uint8_t DEFAULT_FADE_MINUTES = 15;
-constexpr uint8_t DEFAULT_BRIGHTNESS = 100;
+constexpr uint8_t DEFAULT_BRIGHTNESS = 70;
 constexpr uint8_t DEFAULT_TEMPERATURE = 50;
 
 struct Schedule {

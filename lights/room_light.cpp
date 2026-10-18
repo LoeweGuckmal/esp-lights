@@ -261,7 +261,7 @@ void startConnecting() {
   attemptPending = true;
   if (!client->connect(lampAddress, true, true)) {
     attemptPending = false;
-    // Usually the LED lamp is connecting right now (only one attempt can
+    // Usually the LED strip is connecting right now (only one attempt can
     // run at a time), so try again in a second.
     nextAttemptMs = millis() + 1000;
     Serial.println("Could not start connecting to room light.");
@@ -271,7 +271,7 @@ void startConnecting() {
   // If this attempt fails, wait retryDelayMs, and twice as long after the next one.
   nextAttemptMs = millis() + retryDelayMs;
   retryDelayMs = min(retryDelayMs * 2, BLE_RETRY_MAX_MS);
-  if (retryDelayMs >= 240000) {
+  if (retryDelayMs >= 1920000) {
     rgbLedWrite(STATUS_LED_PIN, 0, 0, 0);
   }
 }

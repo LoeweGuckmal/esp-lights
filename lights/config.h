@@ -30,7 +30,7 @@ constexpr uint32_t ALARM_PRECONNECT_S = 120;
 // If the room light is unreachable at the alarm time, keep trying this long.
 constexpr uint32_t ALARM_RETRY_S = 600;
 
-// --- LED lamp (BLE) ---
+// --- LED strip (BLE) ---
 // Address from your working Linux Python script
 constexpr char LED_LAMP_ADDRESS[] = "C2:14:20:00:C4:0E";
 constexpr uint8_t LED_LAMP_ADDRESS_TYPE = 0;  // 0 = public address
