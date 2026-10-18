@@ -1,0 +1,21 @@
+#pragma once
+
+#include <WebServer.h>
+
+// HTTP routes for the alarms, same style as the lights: GET or POST,
+// parameters in the query string or as a flat JSON body. Every route
+// answers with the full alarm status (see /alarm/status).
+//   GET  /alarm             alarm page
+//        /alarm/status
+//        /alarm/on          master switch
+//        /alarm/off
+//        /alarm/save        id (missing = new), days (bits, 1 = Sunday,
+//                           2 = Monday .. 64 = Saturday), hour, minute,
+//                           fade (0-60 min), brightness (1-100),
+//                           temperature (0 = cold..100 = warm), enabled (0/1)
+//        /alarm/delete      id
+//        /alarm/next        date (yyyymmdd, optional) with hour and minute,
+//                           or skip=1: changes the next alarm only
+//        /alarm/next/reset  back to the schedule
+//        /alarm/stop        ends a running sunrise
+void registerAlarmRoutes(WebServer& server);

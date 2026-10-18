@@ -13,12 +13,18 @@ const char LIGHT_PAGE[] = R"rawliteral(
 <style>
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 24px;
+    margin: 0; padding: 16px;
     font: 16px system-ui, sans-serif;
     background: #111318; color: #eee;
   }
+  nav { display: flex; justify-content: center; gap: 4px; }
+  nav a {
+    padding: 7px 14px; border-radius: 999px;
+    color: #b8bbc8; text-decoration: none; font-size: 14px;
+  }
+  nav a.active { background: #20232b; color: #fff; }
   main {
-    max-width: 380px; margin: 30px auto;
+    max-width: 380px; margin: 22px auto 30px;
     padding: 24px; border-radius: 18px;
     background: #20232b;
   }
@@ -58,6 +64,11 @@ const char LIGHT_PAGE[] = R"rawliteral(
 </style>
 </head>
 <body>
+<nav>
+  <a href="/led">LED Lamp</a>
+  <a href="/room">Room Light</a>
+  <a href="/alarm">Alarms</a>
+</nav>
 <main>
   <h2>%TITLE%</h2>
   <div class="row">
@@ -186,6 +197,13 @@ async function showStatus() {
     status.textContent = 'Error: ' + e.message;
   }
 }
+
+document.querySelectorAll('nav a').forEach(a => {
+  if (a.getAttribute('href') === location.pathname) {
+    a.classList.add('active');
+    a.setAttribute('aria-current', 'page');
+  }
+});
 
 updatePreview();
 showStatus();
