@@ -86,7 +86,7 @@ class LampCallbacks : public NimBLEClientCallbacks {
 
   void onConnectFail(NimBLEClient* pClient, int reason) override {
     attemptPending = false;
-    Serial.print("Lamp connection failed, reason ");
+    Serial.print("LED strip connection failed, reason ");
     Serial.println(reason);
   }
 
@@ -94,7 +94,7 @@ class LampCallbacks : public NimBLEClientCallbacks {
     ready = false;
     justConnected = false;
     attemptPending = false;
-    Serial.print("Lamp disconnected, reason ");
+    Serial.print("LED strip disconnected, reason ");
     Serial.println(reason);
   }
 };
@@ -103,7 +103,7 @@ LampCallbacks callbacks;
 
 bool sendCommand(const uint8_t* data, size_t length) {
   if (!isConnected()) {
-    Serial.println("Not connected to lamp!");
+    Serial.println("LED strip not connected!");
     connectNow();
     return false;
   }
@@ -121,7 +121,7 @@ bool sendCommand(const uint8_t* data, size_t length) {
 // Starts a connection attempt and returns immediately.
 // The result arrives in LampCallbacks.
 void startConnecting() {
-  Serial.println("Connecting to lamp...");
+  Serial.println("Connecting to LED strip...");
 
   lastAttemptMs = millis();
 
@@ -135,7 +135,7 @@ void startConnecting() {
     // Usually the room light is connecting right now (only one attempt can
     // run at a time), so try again in a second.
     nextAttemptMs = millis() + 1000;
-    Serial.println("Could not start connecting to lamp.");
+    Serial.println("Could not start connecting to LED strip.");
     return;
   }
 
@@ -186,7 +186,7 @@ bool setupConnection() {
   }
 
   if (!client->isConnected()) {
-    Serial.println("Lamp disconnected during setup.");
+    Serial.println("LED strip disconnected during setup.");
     return false;
   }
 

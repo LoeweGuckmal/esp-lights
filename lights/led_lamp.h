@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-// BLE LED lamp: commands go to characteristic FFD9,
+// BLE LED strip (ambient light under the bed): commands go to characteristic FFD9,
 // status packets come back as notifications on FFD4.
 // NimBLEDevice::init() must be called before begin().
 namespace LedLamp {
