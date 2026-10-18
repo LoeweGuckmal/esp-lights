@@ -18,6 +18,18 @@ constexpr uint32_t BLE_RETRY_MAX_MS = 600000;  // 10 min
 // --- HTTP ---
 constexpr uint16_t HTTP_PORT = 80;
 
+// --- Clock and alarms ---
+// Time zone as a POSIX TZ string. This one is Central Europe (Switzerland,
+// Germany, ...) with daylight saving time.
+constexpr char TIME_ZONE[] = "CET-1CEST,M3.5.0,M10.5.0/3";
+constexpr char NTP_SERVER_1[] = "pool.ntp.org";
+constexpr char NTP_SERVER_2[] = "time.google.com";
+// Start connecting to the room light this long before a sunrise begins,
+// so a slow retry backoff can't make the alarm late.
+constexpr uint32_t ALARM_PRECONNECT_S = 120;
+// If the room light is unreachable at the alarm time, keep trying this long.
+constexpr uint32_t ALARM_RETRY_S = 600;
+
 // --- LED lamp (BLE) ---
 // Address from your working Linux Python script
 constexpr char LED_LAMP_ADDRESS[] = "C2:14:20:00:C4:0E";

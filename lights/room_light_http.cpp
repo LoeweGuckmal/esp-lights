@@ -1,5 +1,6 @@
 #include "room_light_http.h"
 
+#include "alarm_clock.h"
 #include "http_utils.h"
 #include "light_page.h"
 #include "room_light.h"
@@ -42,6 +43,8 @@ void handleRgb(WebServer& server) {
     return;
   }
 
+  // A manual setting takes over from a running sunrise.
+  AlarmClock::stopSunrise();
   if (!ensureLampConnected(server)) return;
 
   bool sent = true;
@@ -73,6 +76,7 @@ void handleWhite(WebServer& server) {
     brightness = 70;
   }
 
+  AlarmClock::stopSunrise();
   if (!ensureLampConnected(server)) return;
 
   bool sent = true;
@@ -100,6 +104,7 @@ void handleOn(WebServer& server) {
 }
 
 void handleOff(WebServer& server) {
+  AlarmClock::stopSunrise();
   if (!ensureLampConnected(server)) return;
   if (!RoomLight::powerOff()) {
     sendNotConnected(server);

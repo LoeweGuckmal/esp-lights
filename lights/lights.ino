@@ -3,6 +3,8 @@
 
 #include <NimBLEDevice.h>
 
+#include "alarm_clock.h"
+#include "alarm_http.h"
 #include "config.h"
 #include "http_server.h"
 #include "led_http.h"
@@ -32,8 +34,12 @@ void setup() {
 
   connectWifi();
 
+  // Needs Wi-Fi for the time
+  AlarmClock::begin();
+
   registerLedRoutes(httpServer());
   registerRoomLightRoutes(httpServer());
+  registerAlarmRoutes(httpServer());
   startHttpServer();
 }
 
@@ -42,6 +48,7 @@ void loop() {
   handleHttpClients();
   LedLamp::loop();
   RoomLight::loop();
+  AlarmClock::loop();
 
   delay(10);
 }

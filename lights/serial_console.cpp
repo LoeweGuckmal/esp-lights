@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 
+#include "alarm_clock.h"
 #include "led_lamp.h"
 #include "room_light.h"
 
@@ -29,6 +30,8 @@ void printSerialHelp() {
   Serial.println("  N = Power on");
   Serial.println("  F = Power off");
   Serial.println("  S = Print status");
+  Serial.println("Alarms:");
+  Serial.println("  A = Print time and next alarm");
   Serial.println("  ? = Show commands");
   Serial.println();
 }
@@ -51,6 +54,7 @@ void handleSerialCommands() {
     case 'N': RoomLight::powerOn(); break;
     case 'F': RoomLight::powerOff(); break;
     case 'S': printRoomLightState(); break;
+    case 'A': AlarmClock::printStatus(); break;
     case '?': printSerialHelp(); break;
     case '\r':
     case '\n':

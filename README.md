@@ -6,6 +6,8 @@ ESP32-S3 firmware that controls the lights in my room over Wi-Fi.
 - **Room light** – an AwoX mesh bulb (BLE), ported from my Python `awoxmeshlight` project
 
 Both are controlled through the same kind of HTTP API and a small web page each.
+On top of that, **wake-up alarms** switch the room light on with a sunrise fade, set per
+weekday like the sleep schedule on the iPhone.
 
 ## Requirements
 
@@ -22,7 +24,8 @@ Both are controlled through the same kind of HTTP API and a small web page each.
 2. Check `lights/config.h`, especially the BLE addresses of both lamps.
 3. Open `lights/lights.ino` in the Arduino IDE, select **ESP32S3 Dev Module** and the right port, and upload.
 4. Open the serial monitor at 115200 baud. Once Wi-Fi is connected it prints the IP address.
-5. Open `http://<ip>/led` or `http://<ip>/room` in a browser.
+5. Open `http://<ip>/led`, `http://<ip>/room` or `http://<ip>/alarm` in a browser.
+6. For the alarms, check `TIME_ZONE` in `config.h` (default: Central Europe with daylight saving).
 
 With `arduino-cli` (run from the repository root):
 
@@ -50,7 +53,10 @@ lights/
 ├── led_lamp.*           LED lamp driver: BLE connection, commands, status (namespace LedLamp)
 ├── led_http.*           HTTP routes under /led
 ├── room_light.*         room light driver: BLE connection, pairing, encryption (namespace RoomLight)
-└── room_light_http.*    HTTP routes under /room
+├── room_light_http.*    HTTP routes under /room
+├── alarm_clock.*        alarms: time sync, schedules saved in flash, sunrise (namespace AlarmClock)
+├── alarm_http.*         HTTP routes under /alarm
+└── alarm_page.*         the alarm page
 ```
 
 The rule of thumb: each light has a **driver** (talks to the device) and an **HTTP file**
@@ -116,6 +122,56 @@ never was one).
 {"ok":true,"connected":true,"state":{"received":true,"is_on":true,"mode":65,"red":255,"green":0,"blue":0,"white":0,"speed":16,"age_ms":1200}}
 ```
 
+### Alarms – `/alarm`
+
+Wake-up alarms for the room light. The page at `/alarm` shows the next alarm at the top, where
+you can change or skip it **for that day only**, and the weekly schedules below it.
+
+- A **schedule** has a time and one or more weekdays. Each weekday belongs to one schedule at
+  most; saving a schedule with a day of another one moves the day over (and deletes the other
+  schedule if it has no days left).
+- **Sunrise:** `fade` minutes before the alarm time the light comes on at its lowest brightness
+  and warmest white, then fades to the schedule's `brightness` and `temperature` by the alarm
+  time. `fade` 0 switches it on at the alarm time.
+- **Next alarm only:** one day can have a different time or be skipped. On a day without a
+  schedule, this is a one-time alarm. It is dropped once the day is over.
+- If the room light is already on when the sunrise would start, the alarm leaves it alone.
+  Switching the room light off or setting a color or white (`/room/off`, `/rgb`, `/white`)
+  ends a running sunrise.
+
+| Path                | Parameters                                                                 |
+| ------------------- | -------------------------------------------------------------------------- |
+| `/alarm`            | alarm page (GET)                                                           |
+| `/alarm/status`     | –                                                                          |
+| `/alarm/on`         | – (master switch: alarms ring)                                             |
+| `/alarm/off`        | – (no alarm rings, schedules are kept)                                     |
+| `/alarm/save`       | `id` (missing = new schedule), `days`, `hour`, `minute`, `fade` (0–60), `brightness` (1–100), `temperature` (0–100), `enabled` (0/1) |
+| `/alarm/delete`     | `id`                                                                       |
+| `/alarm/next`       | `hour` and `minute`, or `skip=1`; optional `date` (`yyyymmdd`, default: the next alarm) |
+| `/alarm/next/reset` | – (back to the schedule)                                                   |
+| `/alarm/stop`       | – (ends a running sunrise, the light stays as it is)                       |
+
+`days` is a bit mask: Sunday = 1, Monday = 2, Tuesday = 4 … Saturday = 64, so weekdays are 62
+and the weekend is 65. When changing a schedule, parameters you leave out keep their value.
+`id` is the position in `schedules`, which is sorted by the first day (Monday first).
+
+Every route answers with the full status. Times are in the ESP's time zone, dates are `yyyymmdd`:
+
+```bash
+curl "http://<ip>/alarm/save?days=62&hour=6&minute=45&fade=20"
+```
+
+```json
+{"ok":true,"time_valid":true,"now":{"date":20261018,"weekday":0,"time":"22:13"},"enabled":true,
+ "schedules":[{"id":0,"days":62,"time":"06:45","enabled":true,"fade":20,"brightness":100,"temperature":50}],
+ "upcoming":[{"date":20261019,"weekday":1,"time":"06:45","schedule":0,"changed":false,"skipped":false,
+              "fade":20,"brightness":100,"temperature":50,"in_minutes":512}],
+ "sunrise":null}
+```
+
+`upcoming` holds the next alarm and the one after it (useful when the next one is skipped).
+`sunrise` is set while one is running: `{"time":"06:45","progress":40,"lamp_connected":true}`.
+
 ## Serial commands
 
 Send a single character in the serial monitor (115200 baud):
@@ -128,6 +184,8 @@ Send a single character in the serial monitor (115200 baud):
 | `w` | White          | `?` | Show commands  |     |              |
 | `y` | Yellow         |     |                |     |              |
 | `p` | Purple         |     |                |     |              |
+
+`A` prints the ESP's time and the next alarm.
 
 ## Adding another light
 
@@ -156,3 +214,7 @@ Look at the room light as an example:
   unreachable, they answer 503 after ~7 s. The web server handles one request at a time, so other
   requests wait meanwhile. `/status` doesn't wait: it starts connecting and answers right away.
 - While the ESP is connected to the room light, the AwoX app and the Python bridge can't connect to it.
+- Alarms need the time from the internet (NTP). Until the ESP has it after a boot, no alarm rings and
+  the alarm page says so. Alarms that were due while the ESP was off don't ring later.
+- Before a sunrise the ESP starts connecting to the room light `ALARM_PRECONNECT_S` early. If the
+  lamp is still unreachable, it keeps trying until `ALARM_RETRY_S` after the alarm time.
