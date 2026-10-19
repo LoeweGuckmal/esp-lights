@@ -34,6 +34,23 @@ struct Saved {
 };
 
 Saved data = {SAVED_VERSION, true, 0, {}, {0, false, 0, 0}};
+
+// An alarm that rings once at a fixed time, switching the light on at once.
+struct Once {
+  int64_t at;  // 0 = not set
+  uint8_t brightness;
+  uint8_t temperature;
+};
+
+// Saved apart from `data`, so the schedules don't need a new version.
+constexpr uint8_t ONCE_VERSION = 1;
+struct SavedOnce {
+  uint8_t version;
+  Once oneTime;
+  Once snooze;
+};
+
+SavedOnce once = {ONCE_VERSION, {0, 0, 0}, {0, 0, 0}};
 Preferences prefs;
 
 // Every alarm up to this time has rung (or was missed on purpose).
@@ -43,8 +60,11 @@ time_t doneUntil = 0;
 
 unsigned long lastTickMs = 0;
 
-// The alarm whose sunrise is running
-uint32_t sunriseDate = 0;  // its date, 0 = none
+// The alarm that rang last (at = 0: none since the boot), for the snooze.
+Alarm lastRang = {};
+
+// The alarm whose sunrise is running, see keyOf(). 0 = none.
+uint32_t sunriseKey = 0;
 bool lampSwitchedOn = false;
 int sentBrightness = -1;
 int sentTemperature = -1;
@@ -52,6 +72,7 @@ unsigned long lastConnectRequestMs = 0;
 
 void save() {
   prefs.putBytes("data", &data, sizeof(data));
+  prefs.putBytes("once", &once, sizeof(once));
 }
 
 // After every change by the user: alarms that are already in the past
@@ -117,6 +138,41 @@ int percentToLamp(int percent) {
   return (percent * LAMP_MAX + 50) / 100;
 }
 
+Alarm onceAlarm(const Once& o, Kind kind) {
+  Alarm alarm = {};
+  alarm.at = (time_t)o.at;
+  tm local;
+  localtime_r(&alarm.at, &local);
+  alarm.date = dateOf(local);
+  alarm.weekday = local.tm_wday;
+  alarm.hour = local.tm_hour;
+  alarm.minute = local.tm_min;
+  alarm.kind = kind;
+  alarm.scheduleIndex = -1;
+  alarm.fadeMinutes = 0;  // switches on at once
+  alarm.brightness = o.brightness;
+  alarm.temperature = o.temperature;
+  return alarm;
+}
+
+// Identifies an alarm while its time can still be changed: by date and kind.
+uint32_t keyOf(const Alarm& alarm) {
+  return alarm.date * 4 + (uint32_t)alarm.kind;
+}
+
+// The next scheduled alarm, skipped or not as asked.
+bool nextScheduled(Alarm& out, bool allowSkipped) {
+  Alarm list[4];  // the one-time alarm and the snooze can come first
+  int count = upcomingAlarms(list, 4);
+  for (int i = 0; i < count; i++) {
+    if (list[i].kind == Kind::Schedule && (allowSkipped || !list[i].skipped)) {
+      out = list[i];
+      return true;
+    }
+  }
+  return false;
+}
+
 // The next alarm that rings (not skipped).
 bool nextAlarm(Alarm& out) {
   Alarm list[2];  // at most one of them is skipped
@@ -143,28 +199,40 @@ float progressAt(const Alarm& alarm, time_t now) {
 
 void finish(const Alarm& alarm) {
   doneUntil = max(doneUntil, alarm.at);
-  sunriseDate = 0;
+  sunriseKey = 0;
+  lastRang = alarm;
 }
 
-// The change for a day that is over is not needed any more.
-void dropOldChange() {
+// Drops what is not needed any more: the change for a day that is over, and
+// a one-time alarm or snooze that rang (or was missed while the ESP was off).
+void dropOldChanges() {
+  bool dirty = false;
   if (data.next.date != 0 && data.next.date < dateOf(dayFromToday(0))) {
     data.next = {0, false, 0, 0};
-    save();
+    dirty = true;
   }
+  if (once.oneTime.at != 0 && once.oneTime.at <= doneUntil) {
+    once.oneTime = {0, 0, 0};
+    dirty = true;
+  }
+  if (once.snooze.at != 0 && once.snooze.at <= doneUntil) {
+    once.snooze = {0, 0, 0};
+    dirty = true;
+  }
+  if (dirty) save();
 }
 
 // Called every second: starts, runs and ends the sunrise.
 void runAlarm(time_t now) {
   Alarm alarm;
   if (!nextAlarm(alarm)) {
-    sunriseDate = 0;
+    sunriseKey = 0;
     return;
   }
 
   time_t start = sunriseStart(alarm);
   if (now < start - (time_t)ALARM_PRECONNECT_S) {
-    sunriseDate = 0;
+    sunriseKey = 0;
     return;
   }
 
@@ -190,8 +258,8 @@ void runAlarm(time_t now) {
 
   if (now < start) return;
 
-  if (sunriseDate != alarm.date) {
-    sunriseDate = alarm.date;
+  if (sunriseKey != keyOf(alarm)) {
+    sunriseKey = keyOf(alarm);
     lampSwitchedOn = false;
     sentBrightness = -1;
     sentTemperature = -1;
@@ -202,7 +270,9 @@ void runAlarm(time_t now) {
       finish(alarm);
       return;
     }
-    Serial.printf("Alarm: sunrise until %02d:%02d\n", alarm.hour, alarm.minute);
+    Serial.printf(alarm.fadeMinutes ? "Alarm: sunrise until %02d:%02d\n"
+                                    : "Alarm: light on (%02d:%02d)\n",
+                  alarm.hour, alarm.minute);
   }
 
   // From the lowest brightness and warmest white to the alarm's setting.
@@ -250,6 +320,13 @@ void begin() {
     data = loaded;
   }
 
+  SavedOnce loadedOnce;
+  if (prefs.getBytesLength("once") == sizeof(loadedOnce) &&
+      prefs.getBytes("once", &loadedOnce, sizeof(loadedOnce)) == sizeof(loadedOnce) &&
+      loadedOnce.version == ONCE_VERSION) {
+    once = loadedOnce;
+  }
+
   configTzTime(TIME_ZONE, NTP_SERVER_1, NTP_SERVER_2);
   Serial.printf("Alarms: %d schedule(s), %s. Waiting for the time...\n",
                 data.count, data.enabled ? "on" : "off");
@@ -267,7 +344,7 @@ void loop() {
     printStatus();
   }
 
-  dropOldChange();
+  dropOldChanges();
   runAlarm(now);
 }
 
@@ -346,10 +423,11 @@ int upcomingAlarms(Alarm* out, int max) {
   time_t now = time(nullptr);
   time_t done = doneUntil ? doneUntil : now;
   const NextChange& change = data.next;
-  int found = 0;
+  Alarm list[DAYS_AHEAD + 3];
+  int count = 0;
 
-  // One alarm per day at most, so they come out in order.
-  for (int i = 0; i <= DAYS_AHEAD && found < max; i++) {
+  // From the schedules: one alarm per day at most.
+  for (int i = 0; i <= DAYS_AHEAD; i++) {
     tm day = dayFromToday(i);
     uint32_t date = dateOf(day);
     int index = scheduleFor(day.tm_wday);
@@ -360,6 +438,7 @@ int upcomingAlarms(Alarm* out, int max) {
     Alarm alarm;
     alarm.date = date;
     alarm.weekday = day.tm_wday;
+    alarm.kind = Kind::Schedule;
     alarm.scheduleIndex = index;
     alarm.skipped = isChanged && change.skip;
 
@@ -387,8 +466,25 @@ int upcomingAlarms(Alarm* out, int max) {
 
     // A skipped alarm stays visible until its time, so it can be undone.
     bool ahead = alarm.skipped ? alarm.at > now : alarm.at > done;
-    if (ahead) out[found++] = alarm;
+    if (ahead) list[count++] = alarm;
   }
+
+  if (once.oneTime.at > done) list[count++] = onceAlarm(once.oneTime, Kind::OneTime);
+  if (once.snooze.at > done) list[count++] = onceAlarm(once.snooze, Kind::Snooze);
+
+  // Insertion sort by time: the one-time alarm and the snooze go in between.
+  for (int i = 1; i < count; i++) {
+    Alarm alarm = list[i];
+    int j = i - 1;
+    while (j >= 0 && list[j].at > alarm.at) {
+      list[j + 1] = list[j];
+      j--;
+    }
+    list[j + 1] = alarm;
+  }
+
+  int found = count < max ? count : max;
+  for (int i = 0; i < found; i++) out[i] = list[i];
   return found;
 }
 
@@ -399,14 +495,9 @@ const char* changeNext(uint32_t date, uint8_t hour, uint8_t minute) {
   time_t now = time(nullptr);
 
   if (date == 0) {
-    Alarm list[1];
-    if (upcomingAlarms(list, 1) > 0) {
-      date = list[0].date;
-    } else {
-      // One-time alarm: today if that time is still ahead, else tomorrow.
-      tm today = dayFromToday(0);
-      date = dateOf(timeOnDay(today, hour, minute) > now ? today : dayFromToday(1));
-    }
+    Alarm alarm;
+    if (!nextScheduled(alarm, true)) return "There is no scheduled alarm to change";
+    date = alarm.date;
   }
 
   tm day;
@@ -414,7 +505,8 @@ const char* changeNext(uint32_t date, uint8_t hour, uint8_t minute) {
   if (timeOnDay(day, hour, minute) <= now) return "That time has already passed";
 
   int index = scheduleFor(day.tm_wday);
-  if (index >= 0 && data.schedules[index].hour == hour &&
+  if (index < 0) return "There is no scheduled alarm on that day";
+  if (data.schedules[index].hour == hour &&
       data.schedules[index].minute == minute) {
     data.next = {0, false, 0, 0};  // same as the schedule
   } else {
@@ -429,7 +521,7 @@ const char* skipNext(uint32_t date) {
 
   if (date == 0) {
     Alarm alarm;
-    if (!nextAlarm(alarm)) return "There is no alarm to skip";
+    if (!nextScheduled(alarm, false)) return "There is no alarm to skip";
     date = alarm.date;
   }
 
@@ -457,6 +549,63 @@ const char* skipNext(uint32_t date) {
 void resetNext() {
   data.next = {0, false, 0, 0};
   changed();
+}
+
+const char* setOneTime(uint8_t hour, uint8_t minute) {
+  if (!timeValid()) return "The time is not known yet";
+  if (hour > 23 || minute > 59) return "Invalid time";
+
+  time_t at = timeOnDay(dayFromToday(0), hour, minute);
+  if (at <= time(nullptr)) at = timeOnDay(dayFromToday(1), hour, minute);
+
+  once.oneTime = {(int64_t)at, DEFAULT_BRIGHTNESS, DEFAULT_TEMPERATURE};
+  changed();
+  return nullptr;
+}
+
+void removeOneTime() {
+  once.oneTime = {0, 0, 0};
+  changed();
+}
+
+bool oneTime(Alarm& out) {
+  if (once.oneTime.at == 0) return false;
+  out = onceAlarm(once.oneTime, Kind::OneTime);
+  return true;
+}
+
+const char* snooze(int minutes) {
+  if (!timeValid()) return "The time is not known yet";
+  if (minutes < 1 || minutes > 120) return "Snooze 1 to 120 minutes";
+
+  stopSunrise();
+
+  // Comes back like the alarm that rang (lastRang), on the full minute.
+  time_t at = (time(nullptr) + minutes * 60) / 60 * 60;
+  bool rang = lastRang.at != 0;
+  once.snooze = {(int64_t)at, rang ? lastRang.brightness : DEFAULT_BRIGHTNESS,
+                 rang ? lastRang.temperature : DEFAULT_TEMPERATURE};
+  changed();
+  Serial.printf("Alarm: snoozed for %d min\n", minutes);
+  return nullptr;
+}
+
+void cancelSnooze() {
+  once.snooze = {0, 0, 0};
+  changed();
+}
+
+bool snoozed(Alarm& out) {
+  if (once.snooze.at == 0) return false;
+  out = onceAlarm(once.snooze, Kind::Snooze);
+  return true;
+}
+
+bool justRang(Alarm& out) {
+  if (lastRang.at == 0 || once.snooze.at != 0) return false;
+  if (time(nullptr) - lastRang.at > (time_t)ALARM_SNOOZE_OFFER_S) return false;
+  out = lastRang;
+  return true;
 }
 
 Sunrise sunrise() {

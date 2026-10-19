@@ -15,7 +15,12 @@
 //                           temperature (0 = cold..100 = warm), enabled (0/1)
 //        /alarm/delete      id
 //        /alarm/next        date (yyyymmdd, optional) with hour and minute,
-//                           or skip=1: changes the next alarm only
+//                           or skip=1: changes the next scheduled alarm only
 //        /alarm/next/reset  back to the schedule
+//        /alarm/once        hour, minute: one-time alarm, light on at once
+//        /alarm/once/remove
+//        /alarm/snooze      minutes (1-120, default 10): light off now, back
+//                           on at once after that
+//        /alarm/snooze/cancel
 //        /alarm/stop        ends a running sunrise
 void registerAlarmRoutes(WebServer& server);

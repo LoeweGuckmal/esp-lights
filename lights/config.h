@@ -29,6 +29,8 @@ constexpr char NTP_SERVER_2[] = "time.google.com";
 constexpr uint32_t ALARM_PRECONNECT_S = 120;
 // If the room light is unreachable at the alarm time, keep trying this long.
 constexpr uint32_t ALARM_RETRY_S = 600;
+// The alarm page offers a snooze for this long after an alarm.
+constexpr uint32_t ALARM_SNOOZE_OFFER_S = 3600;
 
 // --- LED strip (BLE) ---
 // Address from your working Linux Python script

@@ -6,7 +6,8 @@
 // Wake-up alarms for the room light, like the sleep schedule on the iPhone:
 // weekly schedules (each weekday belongs to at most one of them) and a
 // change of the next alarm only. Before the alarm time the light fades in
-// like a sunrise. Alarms are saved in flash, the time comes from NTP.
+// like a sunrise. On top of that, a one-time alarm and a snooze, which switch
+// the light on at once. Alarms are saved in flash, the time comes from NTP.
 namespace AlarmClock {
 
 constexpr int MAX_SCHEDULES = 7;  // each one has at least one day
@@ -26,14 +27,21 @@ struct Schedule {
   bool enabled;
 };
 
-// One planned alarm, from a schedule or changed for that day only.
+enum class Kind : uint8_t {
+  Schedule,  // from a schedule, maybe changed or skipped for that day only
+  OneTime,   // setOneTime()
+  Snooze,    // snooze()
+};
+
+// One planned alarm.
 struct Alarm {
   time_t at;           // when the light reaches its full setting
   uint32_t date;       // local date as yyyymmdd
   uint8_t weekday;     // 0 = Sunday
   uint8_t hour;
   uint8_t minute;
-  int scheduleIndex;   // schedule of that day, -1 = one-time alarm
+  Kind kind;
+  int scheduleIndex;   // schedule of that day, -1 = none
   bool changed;        // time changed for this day only
   bool skipped;        // skipped for this day only, does not ring
   uint8_t fadeMinutes;
@@ -73,21 +81,39 @@ Schedule schedule(int index);
 const char* saveSchedule(int index, const Schedule& schedule);
 const char* deleteSchedule(int index);
 
-// Up to `max` alarms of the next 7 days, in order. A skipped alarm is
-// included (skipped = true) until its time has passed.
+// Up to `max` alarms of the next 7 days, in order, including the one-time
+// alarm and the snooze. A skipped alarm is included (skipped = true) until
+// its time has passed.
 int upcomingAlarms(Alarm* out, int max);
 
-// Changes the alarm on `date` (yyyymmdd) for that day only. On a day without
-// a schedule this is a one-time alarm. date 0 = the next alarm, or if there
-// is none, the next time it is hour:minute.
+// Changes the scheduled alarm on `date` (yyyymmdd) for that day only.
+// date 0 = the next scheduled alarm.
 // Only one day can be changed at a time; a new change replaces the old one.
 const char* changeNext(uint32_t date, uint8_t hour, uint8_t minute);
 
-// Skips the alarm on `date` (0 = the next alarm) once.
+// Skips the scheduled alarm on `date` (0 = the next one) once.
 const char* skipNext(uint32_t date);
 
 // Back to the schedule: undoes changeNext() or skipNext().
 void resetNext();
+
+// One-time alarm at the next hour:minute (today if that time is still
+// ahead, else tomorrow), apart from the schedule. It switches the light on
+// at once, without a sunrise. A new one replaces the old one.
+const char* setOneTime(uint8_t hour, uint8_t minute);
+void removeOneTime();
+bool oneTime(Alarm& out);  // false if none is set
+
+// Ends a running sunrise and rings again in `minutes`: the light comes back
+// on at once, like the alarm that rang. Switching the light off until then
+// is up to the caller.
+const char* snooze(int minutes);
+void cancelSnooze();
+bool snoozed(Alarm& out);  // false if no snooze is set
+
+// The alarm that rang last, if that was less than ALARM_SNOOZE_OFFER_S ago
+// and no snooze is set: the page offers a snooze then.
+bool justRang(Alarm& out);
 
 Sunrise sunrise();
 
