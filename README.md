@@ -133,8 +133,14 @@ you can change or skip it **for that day only**, and the weekly schedules below 
 - **Sunrise:** `fade` minutes before the alarm time the light comes on at its lowest brightness
   and warmest white, then fades to the schedule's `brightness` and `temperature` by the alarm
   time. `fade` 0 switches it on at the alarm time.
-- **Next alarm only:** one day can have a different time or be skipped. On a day without a
-  schedule, this is a one-time alarm. It is dropped once the day is over.
+- **Next alarm only:** one scheduled alarm can have a different time or be skipped, for that
+  day only. The change is dropped once the day is over.
+- **One-time alarm:** rings once at the next time it is `hour:minute` (today if still ahead,
+  otherwise tomorrow), apart from the schedule. It switches the light on at once, without a
+  sunrise, at the default brightness and temperature (`DEFAULT_*` in `alarm_clock.h`).
+- **Snooze:** during a sunrise and up to `ALARM_SNOOZE_OFFER_S` (1 h) after an alarm, the page
+  offers 5 / 10 / 20 min. The light goes off right away and comes back on at once after that,
+  with the brightness and temperature of the alarm that rang.
 - If the room light is already on when the sunrise would start, the alarm leaves it alone.
   Switching the room light off or setting a color or white (`/room/off`, `/rgb`, `/white`)
   ends a running sunrise.
@@ -147,8 +153,12 @@ you can change or skip it **for that day only**, and the weekly schedules below 
 | `/alarm/off`        | – (no alarm rings, schedules are kept)                                     |
 | `/alarm/save`       | `id` (missing = new schedule), `days`, `hour`, `minute`, `fade` (0–60), `brightness` (1–100), `temperature` (0–100), `enabled` (0/1) |
 | `/alarm/delete`     | `id`                                                                       |
-| `/alarm/next`       | `hour` and `minute`, or `skip=1`; optional `date` (`yyyymmdd`, default: the next alarm) |
+| `/alarm/next`       | `hour` and `minute`, or `skip=1`; optional `date` (`yyyymmdd`, default: the next scheduled alarm) |
 | `/alarm/next/reset` | – (back to the schedule)                                                   |
+| `/alarm/once`       | `hour`, `minute` (one-time alarm; replaces the one set before)             |
+| `/alarm/once/remove`| –                                                                          |
+| `/alarm/snooze`     | `minutes` (1–120, default 10); switches the light off and answers with `"light_off"` |
+| `/alarm/snooze/cancel` | –                                                                       |
 | `/alarm/stop`       | – (ends a running sunrise, the light stays as it is)                       |
 
 `days` is a bit mask: Sunday = 1, Monday = 2, Tuesday = 4 … Saturday = 64, so weekdays are 62
@@ -163,14 +173,17 @@ curl "http://<ip>/alarm/save?days=62&hour=6&minute=45&fade=20"
 
 ```json
 {"ok":true,"time_valid":true,"now":{"date":20261018,"weekday":0,"time":"22:13"},"enabled":true,
- "schedules":[{"id":0,"days":62,"time":"06:45","enabled":true,"fade":20,"brightness":100,"temperature":50}],
- "upcoming":[{"date":20261019,"weekday":1,"time":"06:45","schedule":0,"changed":false,"skipped":false,
-              "fade":20,"brightness":100,"temperature":50,"in_minutes":512}],
- "sunrise":null}
+ "schedules":[{"id":0,"days":62,"time":"06:45","enabled":true,"fade":20,"brightness":70,"temperature":50}],
+ "upcoming":[{"kind":"schedule","date":20261019,"weekday":1,"time":"06:45","schedule":0,"changed":false,
+              "skipped":false,"fade":20,"brightness":70,"temperature":50,"in_minutes":512}],
+ "sunrise":null,"one_time":null,"snooze":null,"rang":null}
 ```
 
 `upcoming` holds the next alarm and the one after it (useful when the next one is skipped).
-`sunrise` is set while one is running: `{"time":"06:45","progress":40,"lamp_connected":true}`.
+`kind` is `schedule`, `one_time` or `snooze`. `one_time` and `snooze` show those alarms even
+when they are not among the next two. `sunrise` is set while one is running:
+`{"time":"06:45","progress":40,"lamp_connected":true}`. `rang` is set for an hour after an alarm
+(unless snoozed), for the snooze buttons: `{"time":"05:55","minutes_ago":2}`.
 
 ## Serial commands
 

@@ -129,6 +129,15 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
   #list.off { opacity: .5; }
   #clock { text-align: center; margin-top: 26px; }
 
+  /* Snooze and one-time alarm */
+  .snoozeLabel { margin: 16px 0 0; color: #d4d6e0; font-size: 14px; }
+  .snoozeLabel + .actions { margin-top: 8px; }
+  .actions.snooze button { flex: 1 1 0; padding: 11px 4px; }
+  #once .add { margin-bottom: 12px; }
+  .onceRow { display: flex; align-items: center; gap: 12px; padding: 14px 18px; }
+  .onceRow .info { flex: 1; min-width: 0; }
+  .onceTime { margin-top: 4px; font-size: 17px; }
+
   /* Switch */
   .switch { position: relative; width: 51px; height: 31px; flex: none; }
   .switch input {
@@ -273,6 +282,8 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
     <p class="sub">Loading...</p>
   </section>
 
+  <div id="once"></div>
+
   <div class="section">
     <h3>Schedule</h3>
     <span class="muted">Repeats every week</span>
@@ -349,6 +360,7 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEK = [1, 2, 3, 4, 5, 6, 0];  // Monday first
 const FADES = [0, 5, 10, 15, 20, 30];
+const SNOOZES = [5, 10, 20];  // minutes
 // Same as AlarmClock::DEFAULT_* in alarm_clock.h
 const DEFAULTS = { fade: 15, brightness: 70, temperature: 50 };
 
@@ -475,6 +487,7 @@ function render() {
   $('master').checked = st.enabled;
   $('master').disabled = false;
   renderNext();
+  renderOnce();
   renderList();
   $('clock').textContent = st.time_valid
     ? 'Time on the ESP: ' + DAYS[st.now.weekday] + ' ' + st.now.time
@@ -499,22 +512,47 @@ function renderNext() {
       <p class="sub">No alarm rings until you turn them back on.</p>
       <div class="actions"><button class="primary" onclick="setMaster(true)">Turn on</button></div>`;
   } else if (st.sunrise) {
-    const s = st.sunrise;
-    html = `<div class="label"><h3>Good morning</h3><span class="chip sun">Sunrise ${s.progress} %</span></div>
+    const s = st.sunrise, fading = s.progress < 100;
+    html = `<div class="label"><h3>Good morning</h3>
+        <span class="chip sun">${fading ? 'Sunrise ' + s.progress + ' %' : 'Light on'}</span></div>
       <div class="when">Alarm at</div>
       <div class="big">${s.time}</div>
       <div class="bar"><span style="width:${s.progress}%"></span></div>
-      <p class="sub">${s.lamp_connected ? 'The room light is slowly getting brighter.'
-                                        : 'Trying to reach the room light...'}</p>
-      <div class="actions"><button onclick="stopSunrise()">Stop sunrise</button></div>`;
+      <p class="sub">${!s.lamp_connected ? 'Trying to reach the room light...'
+        : fading ? 'The room light is slowly getting brighter.' : 'Switching the room light on.'}</p>
+      ${snoozeHtml()}
+      <div class="actions"><button onclick="stopSunrise()">${fading ? 'Stop sunrise' : 'Stop'}</button></div>`;
+  } else if (st.rang) {
+    const r = st.rang;
+    html = `<div class="label"><h3>Good morning</h3>
+        <span class="chip sun">Rang ${r.minutes_ago < 1 ? 'just now' : r.minutes_ago + ' min ago'}</span></div>
+      <div class="when">Alarm at</div>
+      <div class="big">${r.time}</div>
+      ${snoozeHtml()}
+      <p class="sub">${nextAlarmText('No other alarm in the next 7 days')}</p>`;
   } else if (!a) {
     idle = true;
     html = `<h3>Next alarm</h3>
       <div class="big dim">--:--</div>
       <p class="sub">No alarm in the next 7 days.</p>
       <div class="actions">
-        <button class="primary" onclick="openNext()">One-time alarm</button>
+        <button class="primary" onclick="openOnce()">One-time alarm</button>
         <button onclick="openEditor(null)">Add schedule</button>
+      </div>`;
+  } else if (a.kind === 'snooze') {
+    html = `<div class="label"><h3>Next alarm</h3><span class="chip sun">Snoozed</span></div>
+      <div class="when">${dayText(a.date)}</div>
+      <div class="big">${a.time}</div>
+      <p class="sub">The light comes back on at once · ${inText(a.in_minutes)}</p>
+      <div class="actions"><button onclick="cancelSnooze()">Cancel snooze</button></div>`;
+  } else if (a.kind === 'one_time') {
+    html = `<div class="label"><h3>Next alarm</h3><span class="chip">One-time</span></div>
+      <div class="when">${dayText(a.date)}</div>
+      <div class="big">${a.time}</div>
+      <p class="sub">Light on at once, no sunrise · ${inText(a.in_minutes)}</p>
+      <div class="actions">
+        <button class="primary" onclick="openOnce()">Change</button>
+        <button onclick="removeOnce()">Remove</button>
       </div>`;
   } else if (a.skipped) {
     html = `<div class="label"><h3>Next alarm</h3><span class="chip warn">Skipped</span></div>
@@ -544,6 +582,39 @@ function renderNext() {
 
   $('next').classList.toggle('idle', idle);
   $('next').innerHTML = html;
+}
+
+// The light goes off now and comes back on at once after that many minutes.
+function snoozeHtml() {
+  return `<p class="snoozeLabel">Snooze: light off, back on in</p>
+    <div class="actions snooze">${SNOOZES.map(m =>
+      `<button class="primary" onclick="snooze(${m})">${m} min</button>`).join('')}</div>`;
+}
+
+const cap = text => text[0].toUpperCase() + text.slice(1);
+
+// The one-time alarm below the card, unless the card shows it already.
+function renderOnce() {
+  const o = st.one_time, a = st.upcoming[0];
+  const special = st.sunrise || st.rang;
+  let html = '';
+
+  if (st.time_valid && st.enabled) {
+    if (o && !(a && a.kind === 'one_time' && !special)) {
+      html = `<div class="card onceRow">
+        <div class="info">
+          <h3>One-time alarm</h3>
+          <div class="onceTime">${cap(dayWord(o.date))} at ${o.time}</div>
+        </div>
+        <button class="link" onclick="openOnce()">Change</button>
+        <button class="link" onclick="removeOnce()">Remove</button>
+      </div>`;
+    } else if (!o && (a || special)) {
+      // Without any alarm, the card has the button itself.
+      html = `<button type="button" class="add" onclick="openOnce()">+ One-time alarm</button>`;
+    }
+  }
+  $('once').innerHTML = html;
 }
 
 let listKey = '';
@@ -614,6 +685,19 @@ function resetNext(message) {
 
 function stopSunrise() {
   change('/stop', null, 'Sunrise stopped');
+}
+
+function snooze(minutes) {
+  change('/snooze', { minutes }, () => 'Snoozed until ' + st.snooze.time +
+         (st.light_off ? '' : '. The light could not be switched off.'));
+}
+
+function cancelSnooze() {
+  change('/snooze/cancel', null, 'Snooze cancelled');
+}
+
+function removeOnce() {
+  change('/once/remove', null, 'One-time alarm removed');
 }
 
 // --- Schedule editor ---
@@ -759,15 +843,26 @@ async function deleteSchedule() {
   if (await change('/delete', { id: ed.id }, 'Schedule deleted')) closeSheet('editor');
 }
 
-// --- Next alarm only ---
+// --- Next alarm only, and the one-time alarm (same sheet) ---
 
 function openNext() {
-  const a = st.upcoming[0];
-  const usual = a && a.schedule !== null ? st.schedules[a.schedule].time : null;
-  nx = { date: a ? a.date : 0, usual };
+  const a = st.upcoming.find(x => x.kind === 'schedule');
+  if (!a) return;
+  nx = { mode: 'next', date: a.date, usual: a.schedule !== null ? st.schedules[a.schedule].time : null };
 
-  $('nxTitle').textContent = usual ? 'Next alarm only' : 'One-time alarm';
-  $('nxTime').value = a ? a.time : '07:00';
+  $('nxTitle').textContent = 'Next alarm only';
+  $('nxTime').value = a.time;
+  renderNextSheet();
+  $('nextSheet').showModal();
+}
+
+// Starts with the one-time alarm that is set, or half an hour from now.
+function openOnce() {
+  nx = { mode: 'once' };
+
+  $('nxTitle').textContent = 'One-time alarm';
+  $('nxTime').value = st.one_time ? st.one_time.time
+    : fromMinutes(Math.ceil((toMinutes(st.now.time) + 30) / 5) * 5);
   renderNextSheet();
   $('nextSheet').showModal();
 }
@@ -775,16 +870,16 @@ function openNext() {
 function renderNextSheet() {
   const time = $('nxTime').value;
   let date = nx.date;
-  if (!date) {
+  if (nx.mode === 'once') {
     // Like the ESP: today if that time is still ahead, else tomorrow
     const d = toDate(st.now.date);
     if (time && time <= st.now.time) d.setDate(d.getDate() + 1);
     date = toNumber(d);
   }
   $('nxDay').textContent = dayText(date);
-  $('nxNote').textContent = nx.usual
-    ? 'Only this alarm changes. Your schedule stays at ' + nx.usual + '.'
-    : 'Rings once and doesn\'t repeat.';
+  $('nxNote').textContent = nx.mode === 'once'
+    ? 'Rings once and switches the light on at once, without a sunrise.'
+    : 'Only this alarm changes.' + (nx.usual ? ' Your schedule stays at ' + nx.usual + '.' : '');
   $('nxSave').disabled = !time;
 }
 
@@ -794,11 +889,13 @@ async function saveNext() {
   const time = $('nxTime').value;
   if (!time) return;
   const [hour, minute] = time.split(':').map(Number);
-  const payload = { hour, minute };
-  if (nx.date) payload.date = nx.date;
 
   $('nxSave').disabled = true;
-  if (await change('/next', payload, () => nextAlarmText('Saved'))) closeSheet('nextSheet');
+  const saved = nx.mode === 'once'
+    ? await change('/once', { hour, minute },
+                   () => 'One-time alarm ' + dayWord(st.one_time.date) + ' at ' + st.one_time.time)
+    : await change('/next', { date: nx.date, hour, minute }, () => nextAlarmText('Saved'));
+  if (saved) closeSheet('nextSheet');
   $('nxSave').disabled = false;
 }
 

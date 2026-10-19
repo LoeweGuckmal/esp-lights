@@ -25,9 +25,18 @@ String scheduleJson(int id, const AlarmClock::Schedule& s) {
          ",\"temperature\":" + String(s.temperature) + "}";
 }
 
+const char* kindText(AlarmClock::Kind kind) {
+  switch (kind) {
+    case AlarmClock::Kind::OneTime: return "one_time";
+    case AlarmClock::Kind::Snooze: return "snooze";
+    default: return "schedule";
+  }
+}
+
 String alarmJson(const AlarmClock::Alarm& a, time_t now) {
   long minutes = max(0L, (long)(a.at - now + 59) / 60);
-  return "{\"date\":" + String(a.date) +
+  return "{\"kind\":\"" + String(kindText(a.kind)) + "\"" +
+         ",\"date\":" + String(a.date) +
          ",\"weekday\":" + String(a.weekday) +
          ",\"time\":\"" + timeText(a.hour, a.minute) + "\"" +
          ",\"schedule\":" + jsonNumber(a.scheduleIndex) +
@@ -40,7 +49,7 @@ String alarmJson(const AlarmClock::Alarm& a, time_t now) {
 }
 
 // Everything the page needs in one answer.
-void sendStatus(WebServer& server) {
+String statusFields() {
   time_t now = time(nullptr);
   bool timeValid = AlarmClock::timeValid();
 
@@ -85,7 +94,26 @@ void sendStatus(WebServer& server) {
     json += ",\"sunrise\":null";
   }
 
-  sendOk(server, json);
+  // Also when they are not among the next two alarms
+  AlarmClock::Alarm alarm;
+  json += ",\"one_time\":" +
+          (AlarmClock::oneTime(alarm) ? alarmJson(alarm, now) : String("null"));
+  json += ",\"snooze\":" +
+          (AlarmClock::snoozed(alarm) ? alarmJson(alarm, now) : String("null"));
+
+  // For the snooze buttons after an alarm
+  if (AlarmClock::justRang(alarm)) {
+    json += ",\"rang\":{\"time\":\"" + timeText(alarm.hour, alarm.minute) + "\"" +
+            ",\"minutes_ago\":" + String((long)(now - alarm.at) / 60) + "}";
+  } else {
+    json += ",\"rang\":null";
+  }
+
+  return json;
+}
+
+void sendStatus(WebServer& server) {
+  sendOk(server, statusFields());
 }
 
 // Sends the status, or the error if there is one.
@@ -173,6 +201,34 @@ void handleNext(WebServer& server) {
   }
 }
 
+void handleOnce(WebServer& server) {
+  int hour = -1, minute = -1;
+  if (!readIntParam(server, "hour", hour, 0, 23) ||
+      !readIntParam(server, "minute", minute, 0, 59)) {
+    return;
+  }
+  if (hour < 0 || minute < 0) {
+    sendError(server, 400, "Provide 'hour' and 'minute'");
+    return;
+  }
+  sendResult(server, AlarmClock::setOneTime(hour, minute));
+}
+
+void handleSnooze(WebServer& server) {
+  int minutes = 10;
+  if (!readIntParam(server, "minutes", minutes, 1, 120)) return;
+
+  const char* error = AlarmClock::snooze(minutes);
+  if (error) {
+    sendError(server, 400, error);
+    return;
+  }
+
+  // Dark until then. Connects first if needed, which can take a few seconds.
+  bool lightOff = RoomLight::ensureConnected() && RoomLight::powerOff();
+  sendOk(server, statusFields() + ",\"light_off\":" + jsonBool(lightOff));
+}
+
 }  // namespace
 
 void registerAlarmRoutes(WebServer& server) {
@@ -190,6 +246,16 @@ void registerAlarmRoutes(WebServer& server) {
   server.on("/alarm/next", HTTP_ANY, [&server]() { handleNext(server); });
   server.on("/alarm/next/reset", HTTP_ANY, [&server]() {
     AlarmClock::resetNext();
+    sendStatus(server);
+  });
+  server.on("/alarm/once", HTTP_ANY, [&server]() { handleOnce(server); });
+  server.on("/alarm/once/remove", HTTP_ANY, [&server]() {
+    AlarmClock::removeOneTime();
+    sendStatus(server);
+  });
+  server.on("/alarm/snooze", HTTP_ANY, [&server]() { handleSnooze(server); });
+  server.on("/alarm/snooze/cancel", HTTP_ANY, [&server]() {
+    AlarmClock::cancelSnooze();
     sendStatus(server);
   });
   server.on("/alarm/stop", HTTP_ANY, [&server]() {
