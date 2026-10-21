@@ -7,7 +7,6 @@ constexpr char WIFI_SSID[] = "SSID";
 constexpr char WIFI_PASSWORD[] = "PASSWORD";
 
 // Mesh credentials of the room light (AwoX), max 16 characters each.
-// Same values as MESH_NAME / MESH_PASSWORD in the AwoX Python project.
 constexpr char ROOM_LIGHT_MESH_NAME[] = "MESH_NAME";
 constexpr char ROOM_LIGHT_MESH_PASSWORD[] = "MESH_PASSWORD";
 

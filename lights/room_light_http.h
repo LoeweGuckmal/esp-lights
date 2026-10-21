@@ -2,8 +2,8 @@
 
 #include <WebServer.h>
 
-// HTTP routes for the room light, compatible with the AwoX Python bridge:
-// GET or POST, parameters in the query string or as a JSON body.
+// HTTP routes for the room light: GET or POST, parameters in the query
+// string or as a JSON body.
 //   GET  /room          control page
 //        /room/rgb      r, g, b (0-255) and/or brightness (1-100)
 //        /room/white    temperature (0 = cold..100 = warm) and/or

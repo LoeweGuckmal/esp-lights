@@ -117,7 +117,7 @@ void handleOff(WebServer& server) {
   sendOk(server, "\"power\":\"off\"");
 }
 
-// Same fields as the bridge, with the lamp's raw values.
+// The lamp's raw values, null while unknown.
 void handleStatus(WebServer& server) {
   // Don't wait for a connection here, so the page loads fast.
   if (!RoomLight::isConnected()) RoomLight::connectNow();
