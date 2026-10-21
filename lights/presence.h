@@ -3,8 +3,9 @@
 #include <Arduino.h>
 
 // Is my phone here? The ESP listens for the phone's Bluetooth (BLE)
-// advertisements, but only on demand: before an alarm (see alarm_clock.cpp)
-// and when asked on the /presence page. Nothing runs in between.
+// advertisements, but only on demand: before an alarm (see alarm_clock.cpp),
+// before daylight switches the light on (see daylight.cpp) and when asked
+// on the /presence page. Nothing runs in between.
 //
 // iPhones change their Bluetooth address about every 15 minutes. To still
 // recognize yours, the ESP needs its identity key (IRK), which it gets by
@@ -20,7 +21,7 @@ enum class Answer : uint8_t {
 
 // Why a check runs. Watch listens longer and doesn't stop when the phone
 // is heard, so the page can show the signal strength live.
-enum class Reason : uint8_t { Manual, Alarm, Watch };
+enum class Reason : uint8_t { Manual, Alarm, Watch, Daylight };
 
 struct Result {
   bool valid;          // a check has run (or is running) since the boot

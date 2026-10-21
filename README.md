@@ -10,6 +10,8 @@ On top of that, **wake-up alarms** switch the room light on with a sunrise fade,
 weekday like the sleep schedule on the iPhone.
 An optional **presence check** listens for your phone over Bluetooth shortly before an alarm:
 if it isn't there, the alarm doesn't ring.
+**Daylight switching** turns the room light on when it gets dark and off when it gets bright,
+from the weather forecast of open-meteo.com (ported from `open-meteo.js` on my PC).
 
 ## Requirements
 
@@ -21,13 +23,15 @@ if it isn't there, the alarm doesn't ring.
 ## Setup
 
 1. Copy `lights/secrets.example.h` to `lights/secrets.h` and enter your Wi-Fi name and password,
-   and the mesh name and password of the room light (`MESH_NAME` / `MESH_PASSWORD` from the
-   Python project). `secrets.h` is in `.gitignore`, so your passwords never get committed.
+   the mesh name and password of the room light (`MESH_NAME` / `MESH_PASSWORD` from the
+   Python project) and your location for the weather forecast. `secrets.h` is in `.gitignore`,
+   so your passwords and location never get committed.
 2. Check `lights/config.h`, especially the BLE addresses of both lights.
 3. Open `lights/lights.ino` in the Arduino IDE, select **ESP32S3 Dev Module** and the right port, and upload.
 4. Open the serial monitor at 115200 baud. Once Wi-Fi is connected it prints the IP address.
 5. Open `http://<ip>/` in a browser: on and off for both lights, with links to `/led`, `/room`
-   and `/alarm`. The presence page at `/presence` isn't linked anywhere; open it directly.
+   and `/alarm`. The presence page at `/presence` and the daylight routes under `/daylight` aren't
+   linked anywhere; open them directly.
 6. For the alarms, check `TIME_ZONE` in `config.h` (default: Central Europe with daylight saving).
 
 With `arduino-cli` (run from the repository root):
@@ -63,7 +67,10 @@ lights/
 ├── alarm_page.*         the alarm page
 ├── presence.*           is my phone here? BLE scan on demand, pairing (namespace Presence)
 ├── presence_http.*      HTTP routes under /presence
-└── presence_page.*      the presence page
+├── presence_page.*      the presence page
+├── weather.*            downloads the forecast from open-meteo.com (namespace Weather)
+├── daylight.*           room light by the sun and the weather, with a log (namespace Daylight)
+└── daylight_http.*      HTTP routes under /daylight
 ```
 
 The rule of thumb: each light has a **driver** (talks to the device) and an **HTTP file**
@@ -200,10 +207,11 @@ when they are not among the next two. `sunrise` is set while one is running:
 Not linked from the other pages; open `http://<ip>/presence` directly.
 
 Is your phone here? The ESP listens for the Bluetooth advertisements every phone sends, but
-only when asked: `PRESENCE_CHECK_LEAD_S` (2 min) before each alarm, and when you tap **Check now**
-on the page. A check listens for at most `PRESENCE_SCAN_S` (30 s) and stops as soon as the phone
-is heard. Nothing runs in between. If the phone isn't heard, the alarm
-doesn't ring. While presence is off, or no phone is paired, alarms ring as usual.
+only when asked: `PRESENCE_CHECK_LEAD_S` (2 min) before each alarm, before daylight switches the
+room light on, and when you tap **Check now** on the page. A check listens for at most
+`PRESENCE_SCAN_S` (30 s) and stops as soon as the phone is heard. Nothing runs in between. If the
+phone isn't heard, the alarm doesn't ring and daylight leaves the light off. While presence is off,
+or no phone is paired, both work as usual.
 
 **Pairing (once).** iPhones change their Bluetooth address about every 15 minutes, so the ESP
 needs the phone's identity key (IRK) to recognize it. It gets the key by pairing:
@@ -253,8 +261,84 @@ Every route answers with the full status:
 
 `answer` is `present`, `away`, `checking` or `unknown` (off, no phone, or no check in the last 10
 minutes). `check` is the running or last check (`null` before the first one); `reason` is
-`manual`, `alarm` or `watch`. `found` means heard with at least `min_rssi`. `pairing` is the seconds
+`manual`, `alarm`, `daylight` or `watch`. `found` means heard with at least `min_rssi`. `pairing` is the seconds
 left while the ESP can be paired, and `pair_ok` tells whether the last pairing worked.
+
+### Daylight – `/daylight`
+
+Not linked from the other pages, and there's no page: the routes answer in JSON, which the browser
+shows as it is.
+
+The room light by daylight, like `dayLightLamp()` and `monitorLightByShortwaveRadiation()` in
+`open-meteo.js` on the PC, both together. The ESP downloads the forecast for your location
+(`WEATHER_LATITUDE` / `WEATHER_LONGITUDE` in `secrets.h`) from open-meteo.com: the solar radiation
+every 15 minutes for the next 24 hours, and sunrise and sunset.
+
+- **By the sun:** on `DAYLIGHT_SUNSET_LEAD_S` (45 min) before sunset, off at sunrise.
+- **By the weather:** on when the radiation drops below `DAYLIGHT_RADIATION_THRESHOLD` (50 W/m²),
+  off when it rises above it again. The time is taken on a straight line between the 15-minute
+  values. After switching, the weather waits an hour before it switches again, so passing clouds
+  don't make the light go on and off.
+- The light only switches when the sun or the weather **changes**, so you can switch it yourself in
+  between. Each of them switches on its own, like the two functions on the PC: on a cloudy
+  evening the weather switches the light on, and 45 min before sunset the sun finds it on already.
+- **On** fades in over `DAYLIGHT_FADE_S` (5 min), from the lowest brightness and warmest white to
+  `DAYLIGHT_BRIGHTNESS` and `DAYLIGHT_TEMPERATURE`, like a short alarm sunrise. Before that, the
+  presence check looks for your phone: if it isn't here, the light stays off. With presence off or
+  no phone paired, it comes on as usual. A light that is on already is left alone.
+- **Off** doesn't ask for the phone.
+- While an alarm's sunrise runs, daylight leaves the light to the alarm. Switching the room light
+  off or setting a color or white (`/room/off`, `/rgb`, `/white`) ends a running fade.
+- If the lamp is unreachable, it keeps trying for `DAYLIGHT_RETRY_S` (10 min). A change while the
+  ESP was off still switches when the ESP is back within those 10 min; older ones don't, like the
+  alarms. So a reboot at night doesn't switch the light on.
+- The forecast is downloaded every 15 min while the weather is about to switch the light (within
+  3 h), every 3 h while that is up to 9 h away, and every 6 h otherwise. After an error it tries
+  again in 15 min and keeps using the last forecast meanwhile.
+
+| Path                | Parameters                                                 |
+| ------------------- | ---------------------------------------------------------- |
+| `/daylight/status`  | –                                                          |
+| `/daylight/log`     | – (every switch, newest first)                             |
+| `/daylight/on`      | – (master switch, saved in flash)                          |
+| `/daylight/off`     | – (nothing is downloaded or switched)                      |
+| `/daylight/refresh` | – (downloads the forecast now)                             |
+
+**The log** keeps the last 40 switches in flash, so it survives a reboot:
+
+```json
+{"ok":true,"log":[
+ {"time":"2026-10-22 07:53:17","trigger":"sunrise","action":"off","result":"off","brightness":70,"temperature":50,"radiation":3},
+ {"time":"2026-10-21 17:40:42","trigger":"sunset","action":"on","result":"on","brightness":70,"temperature":50,"radiation":12}]}
+```
+
+`trigger` is `sunset`, `sunrise`, `dark` or `bright` (the radiation crossed the threshold), and
+`action` follows from it. `result`:
+
+- `on` – switched on; `brightness` and `temperature` are what it fades to (percent)
+- `off` – switched off; `brightness` and `temperature` are what the light had (`temperature` is
+  `null` in color mode)
+- `already_on`, `already_off` – left as it was
+- `phone_away` – the presence check didn't hear your phone, so the light stayed off
+- `lamp_unreachable` – the lamp wasn't reachable for `DAYLIGHT_RETRY_S`
+- `alarm_running` – an alarm's sunrise had the light
+
+`radiation` is the forecast's W/m² at that moment.
+
+**The status** shows what the ESP plans to do:
+
+```json
+{"ok":true,"enabled":true,"time_valid":true,"radiation":28.8,"sun":"bright","weather":"dark",
+ "next_sun":{"time":"2026-10-21 17:40:42","action":"on"},
+ "next_weather":{"time":"2026-10-22 08:30:55","action":"off"},"switching":null,
+ "forecast":{"downloaded":"2026-10-21 17:23:29","until":"2026-10-22 17:00:00","error":null,"next_download_min":360},
+ "settings":{"threshold":50,"sunset_lead_min":45,"fade_s":300,"brightness":70,"temperature":50}}
+```
+
+`sun` and `weather` are what each said last (`dark` = light on, `null` until there is a forecast).
+`radiation` is the forecast's value for now. `switching` is set while a switch runs:
+`{"action":"on","trigger":"sunset","step":"fade","progress":40}`, where `step` is `presence`
+(looking for the phone), `lamp` (connecting) or `fade`.
 
 ## Serial commands
 
@@ -307,3 +391,9 @@ Look at the room light as an example:
   A lamp reconnecting during a check pauses the scan; the check keeps going until its time is up.
 - The presence check only knows whether your phone is near, not whether you are. A phone left at
   home counts as you being home, and with Bluetooth turned off in Settings the phone isn't found.
+- Daylight needs the internet for the forecast. Without it, the last forecast lasts 24 hours;
+  after that the light isn't switched until a download works again.
+- Downloading the forecast blocks the ESP for a moment (about 0.1–0.5 s, at most ~10 s when
+  open-meteo.com is unreachable). It uses plain HTTP, which saves the ~40 KB of memory TLS would
+  need; the data is public, but someone on the network path could fake it.
+- Don't run `open-meteo.js` on the PC at the same time, or both switch the light.
