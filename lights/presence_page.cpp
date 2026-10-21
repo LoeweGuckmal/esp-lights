@@ -243,6 +243,10 @@ function strength(rssi) {
 
 const toMeter = rssi => Math.max(0, Math.min(100, (rssi + 100) / 60 * 100));
 
+// Why a check ran, for "Checked 2 min ago before an alarm."
+const before = reason =>
+  ({ alarm: ' before an alarm', daylight: ' before switching the light on' })[reason] || '';
+
 // --- Rendering ---
 
 function render() {
@@ -283,7 +287,7 @@ function renderNow() {
                'Walk around to see the signal change. ' + c.left_s + ' s left.';
     } else {
       state = 'Looking';
-      detail = 'Listening for your phone' + (c.reason === 'alarm' ? ' before an alarm' : '') +
+      detail = 'Listening for your phone' + before(c.reason) +
                ', at most ' + c.left_s + ' s more.';
     }
     actions = '<button onclick="stopCheck()">Stop</button>';
@@ -292,7 +296,7 @@ function renderNow() {
       dim = !c.found;
       rssi = c.seen ? c.best_rssi : null;
       const when = (c.reason === 'watch' ? 'Watched ' : 'Checked ') + agoText(c.ago_s) +
-                   (c.reason === 'alarm' ? ' before an alarm' : '') + '. ';
+                   before(c.reason) + '. ';
       if (c.found) {
         state = 'Here';
         detail = when + 'Strongest signal ' + c.best_rssi + ' dBm.';
@@ -305,6 +309,7 @@ function renderNow() {
         detail = when + 'Your phone wasn’t heard.';
       }
       if (!c.found && c.reason === 'alarm') detail += ' The alarm didn’t ring.';
+      if (!c.found && c.reason === 'daylight') detail += ' The light stayed off.';
     } else {
       detail = 'Not checked since the ESP started.';
     }
@@ -368,9 +373,10 @@ function renderNote() {
   const lead = Math.round(st.lead_s / 60);
   $('note').hidden = !st.enabled;
   $('note').textContent =
-    'Checks only run when needed: ' + lead + ' min before each alarm, and when you tap ' +
-    'Check now. A check listens for at most ' + st.scan_s + ' s and stops as soon as ' +
-    'your phone is heard. If it isn’t found, that alarm doesn’t ring.' +
+    'Checks only run when needed: ' + lead + ' min before each alarm, before the light ' +
+    'comes on when it gets dark, and when you tap Check now. A check listens for at most ' +
+    st.scan_s + ' s and stops as soon as your phone is heard. If it isn’t found, that ' +
+    'alarm doesn’t ring and the light stays off.' +
     (st.min_rssi > -100 ? ' Signals weaker than ' + st.min_rssi + ' dBm count as not here.' : '');
 }
 

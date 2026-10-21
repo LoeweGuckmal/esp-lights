@@ -6,6 +6,8 @@
 #include "alarm_clock.h"
 #include "alarm_http.h"
 #include "config.h"
+#include "daylight.h"
+#include "daylight_http.h"
 #include "home_page.h"
 #include "http_server.h"
 #include "led_http.h"
@@ -43,12 +45,15 @@ void setup() {
 
   // Needs Wi-Fi for the time
   AlarmClock::begin();
+  // Downloads the forecast from loop(), once the time is known
+  Daylight::begin();
 
   registerHomeRoute(httpServer());
   registerLedRoutes(httpServer());
   registerRoomLightRoutes(httpServer());
   registerAlarmRoutes(httpServer());
   registerPresenceRoutes(httpServer());
+  registerDaylightRoutes(httpServer());
   startHttpServer();
 }
 
@@ -59,6 +64,7 @@ void loop() {
   RoomLight::loop();
   Presence::loop();
   AlarmClock::loop();
+  Daylight::loop();
 
   delay(10);
 }

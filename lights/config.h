@@ -52,6 +52,25 @@ constexpr int PRESENCE_MIN_RSSI = -100;
 // How long the ESP can be paired with after "Pair phone".
 constexpr uint32_t PRESENCE_PAIR_WINDOW_S = 120;
 
+// --- Daylight (room light by the sun and the weather) ---
+// The room light comes on when it gets dark and goes off when it gets
+// bright, from the open-meteo.com forecast for the location in secrets.h.
+// It only comes on when your phone is here (see Presence above).
+// By the sun: on this long before sunset, off at sunrise.
+constexpr uint32_t DAYLIGHT_SUNSET_LEAD_S = 45 * 60;
+// By the weather: on when the solar radiation drops below this (in W/m²),
+// off when it rises above it again. That catches dusk and dark, cloudy
+// hours; a clear sky gives several hundred W/m² by day.
+constexpr float DAYLIGHT_RADIATION_THRESHOLD = 50;
+// Switching on fades in like a short sunrise, from the lowest brightness
+// and warmest white to these (percent, temperature 0 = cold .. 100 = warm).
+constexpr uint32_t DAYLIGHT_FADE_S = 300;
+constexpr uint8_t DAYLIGHT_BRIGHTNESS = 70;
+constexpr uint8_t DAYLIGHT_TEMPERATURE = 50;
+// A switch that can't happen on time (lamp unreachable, ESP just started)
+// is still tried this long.
+constexpr uint32_t DAYLIGHT_RETRY_S = 600;
+
 // --- LED strip (BLE) ---
 // Address from your working Linux Python script
 constexpr char LED_LAMP_ADDRESS[] = "C2:14:20:00:C4:0E";

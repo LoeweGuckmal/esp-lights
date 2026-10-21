@@ -11,6 +11,7 @@ const char* reasonText(Presence::Reason reason) {
   switch (reason) {
     case Presence::Reason::Alarm: return "alarm";
     case Presence::Reason::Watch: return "watch";
+    case Presence::Reason::Daylight: return "daylight";
     default: return "manual";
   }
 }
