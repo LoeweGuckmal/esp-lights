@@ -32,6 +32,26 @@ constexpr uint32_t ALARM_RETRY_S = 600;
 // The alarm page offers a snooze for this long after an alarm.
 constexpr uint32_t ALARM_SNOOZE_OFFER_S = 3600;
 
+// --- Presence (your phone, over BLE) ---
+// Before an alarm, the ESP listens for your phone. If it isn't heard, the
+// alarm doesn't ring. Turned on and off on the /presence page.
+// Start looking this long before the sunrise begins. The room light only
+// gets connected (ALARM_PRECONNECT_S) once the check is done, so the two
+// don't compete for the radio.
+constexpr uint32_t PRESENCE_CHECK_LEAD_S = 120;
+// One check listens at most this long and ends as soon as the phone is
+// heard. A locked iPhone advertises less often, so don't go much lower.
+constexpr uint32_t PRESENCE_SCAN_S = 30;
+// "Watch signal" on the page listens this long and shows every reading.
+constexpr uint32_t PRESENCE_WATCH_S = 60;
+// Weaker signals than this (in dBm) count as "not here". -100 takes
+// everything the ESP can hear, which can be the whole flat. To count only
+// your room, watch the signal from your bed and from the next room, then
+// pick a value in between, e.g. -75.
+constexpr int PRESENCE_MIN_RSSI = -100;
+// How long the ESP can be paired with after "Pair phone".
+constexpr uint32_t PRESENCE_PAIR_WINDOW_S = 120;
+
 // --- LED strip (BLE) ---
 // Address from your working Linux Python script
 constexpr char LED_LAMP_ADDRESS[] = "C2:14:20:00:C4:0E";
