@@ -4,7 +4,7 @@
 
 // Helpers shared by the HTTP routes of all lights.
 // Parameters may come from the query string (?r=255) or a flat JSON body
-// ({"r":255}), like the AwoX Python bridge.
+// ({"r":255}).
 
 // Reads a number parameter and rounds it to an integer.
 // Returns true if it is valid (stored in value) or missing (value unchanged).

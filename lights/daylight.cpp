@@ -15,9 +15,8 @@ namespace {
 // The room light's white brightness and temperature go up to 127.
 constexpr int LAMP_MAX = 127;
 
-// How often the forecast is downloaded, like open-meteo.js: every 15
-// minutes while the weather is about to switch the light, less often when
-// that is hours away.
+// How often the forecast is downloaded: every 15 minutes while the weather
+// is about to switch the light, less often when that is hours away.
 constexpr uint32_t FETCH_SOON_S = 15 * 60;    // a change within 3 hours
 constexpr uint32_t FETCH_LATER_S = 3 * 3600;  // within 9 hours
 constexpr uint32_t FETCH_MAX_S = 6 * 3600;    // later, or none
@@ -25,7 +24,6 @@ constexpr uint32_t FETCH_RETRY_S = 15 * 60;   // after a failed download
 
 // After the weather switched the light, it waits this long before
 // switching again, so passing clouds don't make the light go on and off.
-// open-meteo.js waited an hour after switching, too.
 constexpr time_t WEATHER_HOLD_S = 3600;
 
 // The log, saved in flash as one block. Change the version when the layout

@@ -3,7 +3,7 @@
 ESP32-S3 firmware that controls the lights in my room over Wi-Fi.
 
 - **LED strip** – a Bluetooth (BLE) RGB LED strip under the bed, for ambient light
-- **Room light** – an AwoX mesh bulb (BLE), ported from my Python `awoxmeshlight` project
+- **Room light** – an AwoX mesh bulb (BLE)
 
 Both are controlled through the same kind of HTTP API and a small web page each.
 On top of that, **wake-up alarms** switch the room light on with a sunrise fade, set per
@@ -11,7 +11,7 @@ weekday like the sleep schedule on the iPhone.
 An optional **presence check** listens for your phone over Bluetooth shortly before an alarm:
 if it isn't there, the alarm doesn't ring.
 **Daylight switching** turns the room light on when it gets dark and off when it gets bright,
-from the weather forecast of open-meteo.com (ported from `open-meteo.js` on my PC).
+from the weather forecast of open-meteo.com.
 
 ## Requirements
 
@@ -23,9 +23,8 @@ from the weather forecast of open-meteo.com (ported from `open-meteo.js` on my P
 ## Setup
 
 1. Copy `lights/secrets.example.h` to `lights/secrets.h` and enter your Wi-Fi name and password,
-   the mesh name and password of the room light (`MESH_NAME` / `MESH_PASSWORD` from the
-   Python project) and your location for the weather forecast. `secrets.h` is in `.gitignore`,
-   so your passwords and location never get committed.
+   the mesh name and password of the room light and your location for the weather forecast.
+   `secrets.h` is in `.gitignore`, so your passwords and location never get committed.
 2. Check `lights/config.h`, especially the BLE addresses of both lights.
 3. Open `lights/lights.ino` in the Arduino IDE, select **ESP32S3 Dev Module** and the right port, and upload.
 4. Open the serial monitor at 115200 baud. Once Wi-Fi is connected it prints the IP address.
@@ -85,7 +84,7 @@ without extra include paths) files at the top level of the sketch.
 The start page at `/` has on and off buttons for both lights and links to their pages and the
 alarms. It uses the routes below, nothing of its own.
 
-Both lights use the same design as the AwoX Python bridge (`bridge/lamp_server.py`):
+Both lights work the same way:
 
 - Every endpoint accepts **GET or POST**.
 - Parameters go in the query string (`?r=255&g=80&b=0`) or a JSON body (`{"r":255,"g":80,"b":0}`).
@@ -107,17 +106,13 @@ Both lights use the same design as the AwoX Python bridge (`bridge/lamp_server.p
 curl "http://<ip>/room/rgb?r=255&g=80&b=0&brightness=80"
 ```
 
-`/room/status` reads a fresh status from the lamp. The values are the lamp's raw ones, like in the
-bridge (`white_brightness` / `white_temp` 0–127, `color_brightness` 10–100, `mode` 1 = white,
+`/room/status` reads a fresh status from the lamp. The values are the lamp's raw ones
+(`white_brightness` / `white_temp` 0–127, `color_brightness` 10–100, `mode` 1 = white,
 3 = color), `null` while unknown:
 
 ```json
 {"ok":true,"connected":true,"state":{"status":1,"is_on":true,"mode":3,"white_brightness":89,"white_temp":64,"color_brightness":80,"red":255,"green":80,"blue":0}}
 ```
-
-The bridge's Node client (`awoxLamp.js`) works against the ESP: set
-`AWOX_BRIDGE_URL=http://<ip>/room`. Only `connect()` and `disconnect()` don't exist here,
-because the ESP keeps the lamp connected by itself.
 
 ### LED strip – `/led`
 
@@ -269,10 +264,9 @@ left while the ESP can be paired, and `pair_ok` tells whether the last pairing w
 Not linked from the other pages, and there's no page: the routes answer in JSON, which the browser
 shows as it is.
 
-The room light by daylight, like `dayLightLamp()` and `monitorLightByShortwaveRadiation()` in
-`open-meteo.js` on the PC, both together. The ESP downloads the forecast for your location
-(`WEATHER_LATITUDE` / `WEATHER_LONGITUDE` in `secrets.h`) from open-meteo.com: the solar radiation
-every 15 minutes for the next 24 hours, and sunrise and sunset.
+The room light by daylight, switched by the sun and by the weather. The ESP downloads the forecast
+for your location (`WEATHER_LATITUDE` / `WEATHER_LONGITUDE` in `secrets.h`) from open-meteo.com:
+the solar radiation every 15 minutes for the next 24 hours, and sunrise and sunset.
 
 - **By the sun:** on `DAYLIGHT_SUNSET_LEAD_S` (45 min) before sunset, off at sunrise.
 - **By the weather:** on when the radiation drops below `DAYLIGHT_RADIATION_THRESHOLD` (50 W/m²),
@@ -280,8 +274,8 @@ every 15 minutes for the next 24 hours, and sunrise and sunset.
   values. After switching, the weather waits an hour before it switches again, so passing clouds
   don't make the light go on and off.
 - The light only switches when the sun or the weather **changes**, so you can switch it yourself in
-  between. Each of them switches on its own, like the two functions on the PC: on a cloudy
-  evening the weather switches the light on, and 45 min before sunset the sun finds it on already.
+  between. Each of them switches on its own: on a cloudy evening the weather switches the light
+  on, and 45 min before sunset the sun finds it on already.
 - **On** fades in over `DAYLIGHT_FADE_S` (5 min), from the lowest brightness and warmest white to
   `DAYLIGHT_BRIGHTNESS` and `DAYLIGHT_TEMPERATURE`, like a short alarm sunrise. Before that, the
   presence check looks for your phone: if it isn't here, the light stays off. With presence off or
@@ -382,7 +376,7 @@ Look at the room light as an example:
   for it, so the first command after the lamp was off can take a few seconds. If the lamp is still
   unreachable, they answer 503 after ~7 s. The web server handles one request at a time, so other
   requests wait meanwhile. `/status` doesn't wait: it starts connecting and answers right away.
-- While the ESP is connected to the room light, the AwoX app and the Python bridge can't connect to it.
+- While the ESP is connected to the room light, other devices like the AwoX app can't connect to it.
 - Alarms need the time from the internet (NTP). Until the ESP has it after a boot, no alarm rings and
   the alarm page says so. Alarms that were due while the ESP was off don't ring later.
 - Before a sunrise the ESP starts connecting to the room light `ALARM_PRECONNECT_S` early. If the
@@ -396,4 +390,3 @@ Look at the room light as an example:
 - Downloading the forecast blocks the ESP for a moment (about 0.1–0.5 s, at most ~10 s when
   open-meteo.com is unreachable). It uses plain HTTP, which saves the ~40 KB of memory TLS would
   need; the data is public, but someone on the network path could fake it.
-- Don't run `open-meteo.js` on the PC at the same time, or both switch the light.

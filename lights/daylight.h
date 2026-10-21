@@ -3,8 +3,7 @@
 #include <Arduino.h>
 #include <time.h>
 
-// Switches the room light by daylight, like dayLightLamp() and
-// monitorLightByShortwaveRadiation() in open-meteo.js on the PC:
+// Switches the room light by daylight, in two ways:
 // - by the sun: on DAYLIGHT_SUNSET_LEAD_S before sunset, off at sunrise
 // - by the weather: on when the solar radiation drops below
 //   DAYLIGHT_RADIATION_THRESHOLD, off when it rises above it again

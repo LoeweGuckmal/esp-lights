@@ -72,7 +72,6 @@ constexpr uint8_t DAYLIGHT_TEMPERATURE = 50;
 constexpr uint32_t DAYLIGHT_RETRY_S = 600;
 
 // --- LED strip (BLE) ---
-// Address from your working Linux Python script
 constexpr char LED_LAMP_ADDRESS[] = "C2:14:20:00:C4:0E";
 constexpr uint8_t LED_LAMP_ADDRESS_TYPE = 0;  // 0 = public address
 // How long one connection attempt may take
