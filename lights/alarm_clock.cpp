@@ -3,6 +3,7 @@
 #include <Preferences.h>
 
 #include "config.h"
+#include "presence.h"
 #include "room_light.h"
 
 namespace AlarmClock {
@@ -69,6 +70,11 @@ bool lampSwitchedOn = false;
 int sentBrightness = -1;
 int sentTemperature = -1;
 unsigned long lastConnectRequestMs = 0;
+
+// The alarm (by its time) whose presence check was started, and the one
+// whose answer is in. Each alarm asks once.
+time_t presenceCheckedFor = 0;
+time_t presenceDecidedFor = 0;
 
 void save() {
   prefs.putBytes("data", &data, sizeof(data));
@@ -203,6 +209,34 @@ void finish(const Alarm& alarm) {
   lastRang = alarm;
 }
 
+// Like finish(), but the alarm didn't ring, so there's nothing to snooze.
+void skipRinging(const Alarm& alarm) {
+  doneUntil = max(doneUntil, alarm.at);
+  sunriseKey = 0;
+}
+
+// Looks for the phone before the alarm (see presence.h). Returns true while
+// the answer is not in yet or when the phone isn't here: the alarm must not
+// go on then. Off, or no phone paired: the alarm rings as usual.
+bool waitOrSkipForPresence(const Alarm& alarm) {
+  if (presenceDecidedFor == alarm.at) return false;
+
+  if (presenceCheckedFor != alarm.at) {
+    presenceCheckedFor = alarm.at;
+    Presence::check(Presence::Reason::Alarm);  // does nothing when off
+  }
+
+  Presence::Answer answer = Presence::answer();
+  if (answer == Presence::Answer::Checking) return true;  // PRESENCE_SCAN_S at most
+
+  presenceDecidedFor = alarm.at;
+  if (answer != Presence::Answer::Away) return false;
+
+  Serial.println("Alarm: phone not found, so it doesn't ring.");
+  skipRinging(alarm);
+  return true;
+}
+
 // Drops what is not needed any more: the change for a day that is over, and
 // a one-time alarm or snooze that rang (or was missed while the ESP was off).
 void dropOldChanges() {
@@ -231,7 +265,7 @@ void runAlarm(time_t now) {
   }
 
   time_t start = sunriseStart(alarm);
-  if (now < start - (time_t)ALARM_PRECONNECT_S) {
+  if (now < start - (time_t)max(ALARM_PRECONNECT_S, PRESENCE_CHECK_LEAD_S)) {
     sunriseKey = 0;
     return;
   }
@@ -239,6 +273,14 @@ void runAlarm(time_t now) {
   if (now > alarm.at + (time_t)ALARM_RETRY_S) {
     Serial.println("Alarm: could not reach the room light, giving up.");
     finish(alarm);
+    return;
+  }
+
+  // First the phone, then the lamp, so they don't compete for the radio.
+  if (waitOrSkipForPresence(alarm)) return;
+
+  if (now < start - (time_t)ALARM_PRECONNECT_S) {
+    sunriseKey = 0;
     return;
   }
 

@@ -8,6 +8,8 @@ ESP32-S3 firmware that controls the lights in my room over Wi-Fi.
 Both are controlled through the same kind of HTTP API and a small web page each.
 On top of that, **wake-up alarms** switch the room light on with a sunrise fade, set per
 weekday like the sleep schedule on the iPhone.
+An optional **presence check** listens for your phone over Bluetooth shortly before an alarm:
+if it isn't there, the alarm doesn't ring.
 
 ## Requirements
 
@@ -24,7 +26,8 @@ weekday like the sleep schedule on the iPhone.
 2. Check `lights/config.h`, especially the BLE addresses of both lights.
 3. Open `lights/lights.ino` in the Arduino IDE, select **ESP32S3 Dev Module** and the right port, and upload.
 4. Open the serial monitor at 115200 baud. Once Wi-Fi is connected it prints the IP address.
-5. Open `http://<ip>/led`, `http://<ip>/room` or `http://<ip>/alarm` in a browser.
+5. Open `http://<ip>/` in a browser: on and off for both lights, with links to `/led`, `/room`
+   and `/alarm`. The presence page at `/presence` isn't linked anywhere; open it directly.
 6. For the alarms, check `TIME_ZONE` in `config.h` (default: Central Europe with daylight saving).
 
 With `arduino-cli` (run from the repository root):
@@ -48,6 +51,7 @@ lights/
 ├── wifi_connection.*    connects to Wi-Fi
 ├── http_server.*        the shared web server and its 404 handler
 ├── http_utils.*         read request parameters, send JSON answers
+├── home_page.*          start page at /: on and off for both lights
 ├── light_page.*         HTML control page shared by all lights
 ├── serial_console.*     single-character test commands over the serial monitor
 ├── led_lamp.*           LED strip driver: BLE connection, commands, status (namespace LedLamp)
@@ -56,7 +60,10 @@ lights/
 ├── room_light_http.*    HTTP routes under /room
 ├── alarm_clock.*        alarms: time sync, schedules saved in flash, sunrise (namespace AlarmClock)
 ├── alarm_http.*         HTTP routes under /alarm
-└── alarm_page.*         the alarm page
+├── alarm_page.*         the alarm page
+├── presence.*           is my phone here? BLE scan on demand, pairing (namespace Presence)
+├── presence_http.*      HTTP routes under /presence
+└── presence_page.*      the presence page
 ```
 
 The rule of thumb: each light has a **driver** (talks to the device) and an **HTTP file**
@@ -67,6 +74,9 @@ All files sit directly in the sketch folder because the Arduino IDE only shows (
 without extra include paths) files at the top level of the sketch.
 
 ## HTTP API
+
+The start page at `/` has on and off buttons for both lights and links to their pages and the
+alarms. It uses the routes below, nothing of its own.
 
 Both lights use the same design as the AwoX Python bridge (`bridge/lamp_server.py`):
 
@@ -185,6 +195,67 @@ when they are not among the next two. `sunrise` is set while one is running:
 `{"time":"06:45","progress":40,"lamp_connected":true}`. `rang` is set for an hour after an alarm
 (unless snoozed), for the snooze buttons: `{"time":"05:55","minutes_ago":2}`.
 
+### Presence – `/presence`
+
+Not linked from the other pages; open `http://<ip>/presence` directly.
+
+Is your phone here? The ESP listens for the Bluetooth advertisements every phone sends, but
+only when asked: `PRESENCE_CHECK_LEAD_S` (2 min) before each alarm, and when you tap **Check now**
+on the page. A check listens for at most `PRESENCE_SCAN_S` (30 s) and stops as soon as the phone
+is heard. Nothing runs in between. If the phone isn't heard, the alarm
+doesn't ring. While presence is off, or no phone is paired, alarms ring as usual.
+
+**Pairing (once).** iPhones change their Bluetooth address about every 15 minutes, so the ESP
+needs the phone's identity key (IRK) to recognize it. It gets the key by pairing:
+
+1. On `/presence`, tap **Pair phone**. For 2 minutes the ESP can be found as `BLE_DEVICE_NAME`
+   (`ESP32-Lamp-Test`).
+2. On the iPhone, open a Bluetooth app like **nRF Connect** or **LightBlue** (both free) and
+   connect to it. The iPhone's Bluetooth settings don't list devices like this one, so an app is
+   needed for this one step.
+3. Tap **Pair** when the iPhone asks. If it doesn't ask, open the service in the app and read its
+   characteristic.
+
+The key is saved in flash. If pairing fails after **Forget** on the page, also forget the ESP in the
+iPhone's Bluetooth settings and pair again.
+
+**Signal strength.** The page shows the signal (RSSI, in dBm) of the last check. **Watch signal**
+listens for `PRESENCE_WATCH_S` (1 min) and shows every reading, so you can walk around and see how
+it changes. By default anything the ESP can hear counts as "here", which can be the whole flat.
+To count only your room, set `PRESENCE_MIN_RSSI` in `config.h` to a value between what you see
+in bed and in the next room (e.g. -75).
+
+**Load.** Only while a check runs: the scan listens 30 ms of every 100 ms, so Wi-Fi and the lamp
+connections keep most of the radio. It costs the phone nothing, since it advertises anyway. A
+pairing service with one characteristic sits in memory all the time, but it's only visible
+while pairing.
+
+| Path                     | Parameters                                                        |
+| ------------------------ | ----------------------------------------------------------------- |
+| `/presence`              | presence page (GET)                                               |
+| `/presence/status`       | –                                                                 |
+| `/presence/on`           | – (master switch, saved in flash)                                 |
+| `/presence/off`          | – (no scanning or advertising at all, alarms ring as usual)       |
+| `/presence/check`        | optional `watch=1` (listen 1 min and show every reading)          |
+| `/presence/stop`         | – (ends a running check)                                          |
+| `/presence/pair`         | – (ready to pair for `PRESENCE_PAIR_WINDOW_S`)                    |
+| `/presence/pair/cancel`  | –                                                                 |
+| `/presence/forget`       | – (forgets the paired phone)                                      |
+
+Every route answers with the full status:
+
+```json
+{"ok":true,"enabled":true,"phone":true,"answer":"present","pairing":null,"pair_ok":false,
+ "check":{"running":false,"reason":"manual","seen":true,"found":true,"rssi":-64,"best_rssi":-61,
+          "heard_ago_s":42,"ago_s":40,"left_s":0},
+ "device_name":"ESP32-Lamp-Test","min_rssi":-100,"scan_s":30,"lead_s":120}
+```
+
+`answer` is `present`, `away`, `checking` or `unknown` (off, no phone, or no check in the last 10
+minutes). `check` is the running or last check (`null` before the first one); `reason` is
+`manual`, `alarm` or `watch`. `found` means heard with at least `min_rssi`. `pairing` is the seconds
+left while the ESP can be paired, and `pair_ok` tells whether the last pairing worked.
+
 ## Serial commands
 
 Send a single character in the serial monitor (115200 baud):
@@ -198,7 +269,8 @@ Send a single character in the serial monitor (115200 baud):
 | `y` | Yellow         |     |                |     |              |
 | `p` | Purple         |     |                |     |              |
 
-`A` prints the ESP's time and the next alarm.
+`A` prints the ESP's time and the next alarm. `P` looks for the phone; the result is printed
+when the check ends.
 
 ## Adding another light
 
@@ -231,3 +303,7 @@ Look at the room light as an example:
   the alarm page says so. Alarms that were due while the ESP was off don't ring later.
 - Before a sunrise the ESP starts connecting to the room light `ALARM_PRECONNECT_S` early. If the
   lamp is still unreachable, it keeps trying until `ALARM_RETRY_S` after the alarm time.
+- With presence on, the room light only gets connected once the phone check is done (at most 30 s).
+  A lamp reconnecting during a check pauses the scan; the check keeps going until its time is up.
+- The presence check only knows whether your phone is near, not whether you are. A phone left at
+  home counts as you being home, and with Bluetooth turned off in Settings the phone isn't found.

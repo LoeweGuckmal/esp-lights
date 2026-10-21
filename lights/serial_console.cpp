@@ -4,6 +4,7 @@
 
 #include "alarm_clock.h"
 #include "led_lamp.h"
+#include "presence.h"
 #include "room_light.h"
 
 static void printRoomLightState() {
@@ -32,6 +33,8 @@ void printSerialHelp() {
   Serial.println("  S = Print status");
   Serial.println("Alarms:");
   Serial.println("  A = Print time and next alarm");
+  Serial.println("Presence:");
+  Serial.println("  P = Look for the phone now");
   Serial.println("  ? = Show commands");
   Serial.println();
 }
@@ -55,6 +58,11 @@ void handleSerialCommands() {
     case 'F': RoomLight::powerOff(); break;
     case 'S': printRoomLightState(); break;
     case 'A': AlarmClock::printStatus(); break;
+    case 'P': {
+      const char* error = Presence::check(Presence::Reason::Manual);
+      if (error) Serial.printf("Presence: %s\n", error);
+      break;
+    }
     case '?': printSerialHelp(); break;
     case '\r':
     case '\n':
