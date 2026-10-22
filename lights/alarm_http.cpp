@@ -215,8 +215,18 @@ void handleOnce(WebServer& server) {
 }
 
 void handleSnooze(WebServer& server) {
-  int minutes = 10;
-  if (!readIntParam(server, "minutes", minutes, 1, 120)) return;
+  int minutes = 10, ifAlarm = 0;
+  if (!readIntParam(server, "minutes", minutes, 1, 120) ||
+      !readIntParam(server, "if_alarm", ifAlarm, 0, 1)) {
+    return;
+  }
+
+  // From a phone automation on every snoozed alarm: nothing to do when the
+  // ESP has no alarm going on. Not an error, so the phone stays quiet.
+  if (ifAlarm == 1 && !AlarmClock::alarmGoingOn(minutes)) {
+    sendOk(server, statusFields() + ",\"snoozed\":false");
+    return;
+  }
 
   const char* error = AlarmClock::snooze(minutes);
   if (error) {
@@ -226,7 +236,8 @@ void handleSnooze(WebServer& server) {
 
   // Dark until then. Connects first if needed, which can take a few seconds.
   bool lightOff = RoomLight::ensureConnected() && RoomLight::powerOff();
-  sendOk(server, statusFields() + ",\"light_off\":" + jsonBool(lightOff));
+  sendOk(server, statusFields() + ",\"snoozed\":true,\"light_off\":" +
+                     jsonBool(lightOff));
 }
 
 }  // namespace
