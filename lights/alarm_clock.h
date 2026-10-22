@@ -104,12 +104,19 @@ const char* setOneTime(uint8_t hour, uint8_t minute);
 void removeOneTime();
 bool oneTime(Alarm& out);  // false if none is set
 
-// Ends a running sunrise and rings again in `minutes`: the light comes back
-// on at once, like the alarm that rang. Switching the light off until then
-// is up to the caller.
+// Ends a running sunrise and rings again in `minutes` (ALARM_SNOOZE_EARLY_S
+// earlier): the light comes back on at once, like the alarm that rang. An
+// alarm due before then doesn't ring; the snooze takes it over. Switching
+// the light off until then is up to the caller.
 const char* snooze(int minutes);
 void cancelSnooze();
 bool snoozed(Alarm& out);  // false if no snooze is set
+
+// Whether snooze(minutes) belongs to an alarm of the ESP: a sunrise is
+// running, an alarm or snooze rang at most ALARM_PHONE_SNOOZE_S ago, a
+// snooze is set, or the next alarm is due within `minutes`. For a phone
+// automation that runs on every snoozed alarm, also one in the afternoon.
+bool alarmGoingOn(int minutes);
 
 // The alarm that rang last, if that was less than ALARM_SNOOZE_OFFER_S ago
 // and no snooze is set: the page offers a snooze then.

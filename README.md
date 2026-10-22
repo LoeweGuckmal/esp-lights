@@ -163,7 +163,9 @@ you can change or skip it **for that day only**, and the weekly schedules below 
   sunrise, at the default brightness and temperature (`DEFAULT_*` in `alarm_clock.h`).
 - **Snooze:** during a sunrise and up to `ALARM_SNOOZE_OFFER_S` (1 h) after an alarm, the page
   offers 5 / 10 / 20 min. The light goes off right away and comes back on at once after that,
-  with the brightness and temperature of the alarm that rang.
+  with the brightness and temperature of the alarm that rang. An alarm due before the snooze
+  ends doesn't ring; the snooze takes it over. The iPhone's snooze button can do the same, see
+  [Snooze with the iPhone alarm](#snooze-with-the-iphone-alarm).
 - If the room light is already on when the sunrise would start, the alarm leaves it alone.
   Switching the room light off or setting a color or white (`/room/off`, `/room/toggle`, `/rgb`,
   `/white`) ends a running sunrise.
@@ -180,7 +182,7 @@ you can change or skip it **for that day only**, and the weekly schedules below 
 | `/alarm/next/reset` | – (back to the schedule)                                                   |
 | `/alarm/once`       | `hour`, `minute` (one-time alarm; replaces the one set before)             |
 | `/alarm/once/remove`| –                                                                          |
-| `/alarm/snooze`     | `minutes` (1–120, default 10); switches the light off and answers with `"light_off"` |
+| `/alarm/snooze`     | `minutes` (1–120, default 10); switches the light off and answers with `"snoozed":true` and `"light_off"`. `if_alarm=1`: only while an alarm is going on (see below), otherwise `"snoozed":false` |
 | `/alarm/snooze/cancel` | –                                                                       |
 | `/alarm/stop`       | – (ends a running sunrise, the light stays as it is)                       |
 
@@ -207,6 +209,41 @@ curl "http://<ip>/alarm/save?days=62&hour=6&minute=45&fade=20"
 when they are not among the next two. `sunrise` is set while one is running:
 `{"time":"06:45","progress":40,"lamp_connected":true}`. `rang` is set for an hour after an alarm
 (unless snoozed), for the snooze buttons: `{"time":"05:55","minutes_ago":2}`.
+
+#### Snooze with the iPhone alarm
+
+When you snooze the iPhone's alarm, the light goes off and comes back on together with it. An
+iPhone automation can't be tied to snoozing the Sleep focus wake-up alarm, only to snoozing *any*
+alarm. So the automation calls `/alarm/snooze?minutes=9&if_alarm=1` for every snoozed alarm, and
+the ESP decides. It snoozes only while one of its alarms is going on:
+
+- a sunrise is running,
+- an alarm or snooze rang up to `ALARM_PHONE_SNOOZE_S` (20 min) ago,
+- a snooze is set, or
+- the next alarm is due before the snooze ends (it is moved to the snooze time).
+
+Otherwise (a timer alarm at 3 pm, the alarms are off) it answers `"snoozed":false` and nothing
+changes. The light comes back on `ALARM_SNOOZE_EARLY_S` (15 s) before the snooze is up, after
+8:45 for 9 minutes, so it's on when the phone rings again.
+
+Give the ESP a fixed IP in your router (DHCP reservation), then on the iPhone:
+
+1. **Shortcuts** → **Automation** → **+** → **Alarm**.
+2. Pick **Is Snoozed** for any alarm, and **Run Immediately** (turn off **Notify When Run**).
+   **Next** → **New Blank Automation**.
+3. Add **Get Contents of URL** with `http://<ip>/alarm/snooze?minutes=9&if_alarm=1`.
+   `minutes` must match the phone's snooze length, which is 9 by default.
+4. Tap ▶ once to test. iOS asks for access to the local network; allow it. Unless an alarm
+   is going on, the answer ends with `"snoozed":false` and the light stays as it is.
+
+Optional:
+
+- **Away from home** the request fails and the iPhone shows an error. To avoid that, put
+  **Get Network Details** (Wi-Fi, Network Name) first and the URL inside **If** *Network Details*
+  **is** *your Wi-Fi name*.
+- **Stopping the alarm** while it's snoozed: a second automation, **Is Stopped** for any alarm,
+  with `http://<ip>/alarm/snooze/cancel` keeps the light from coming back on. When no snooze is
+  set, it changes nothing.
 
 ### Presence – `/presence`
 

@@ -196,6 +196,11 @@ time_t sunriseStart(const Alarm& alarm) {
   return alarm.at - alarm.fadeMinutes * 60;
 }
 
+// A snooze of `minutes` from now rings a little early, see config.h.
+time_t snoozeTime(int minutes) {
+  return time(nullptr) + minutes * 60 - ALARM_SNOOZE_EARLY_S;
+}
+
 // 0 at the start of the sunrise, 1 at the alarm time.
 float progressAt(const Alarm& alarm, time_t now) {
   if (alarm.fadeMinutes == 0) return 1;
@@ -622,17 +627,29 @@ const char* snooze(int minutes) {
 
   stopSunrise();
 
-  // Comes back like the alarm that rang (lastRang), on the full minute.
-  time_t at = (time(nullptr) + minutes * 60) / 60 * 60;
-  bool rang = lastRang.at != 0;
-  once.snooze = {(int64_t)at, rang ? lastRang.brightness : DEFAULT_BRIGHTNESS,
-                 rang ? lastRang.temperature : DEFAULT_TEMPERATURE};
+  // Comes back like the alarm that rang (lastRang).
+  time_t at = snoozeTime(minutes);
+  Alarm like = lastRang;
+
+  // Alarms due until then would only switch the light on early, so the
+  // snooze takes them over. The old snooze goes first, it is replaced.
+  once.snooze = {0, 0, 0};
+  Alarm next;
+  while (nextAlarm(next) && next.at <= at) {
+    skipRinging(next);
+    like = next;
+  }
+
+  bool known = like.at != 0;
+  once.snooze = {(int64_t)at, known ? like.brightness : DEFAULT_BRIGHTNESS,
+                 known ? like.temperature : DEFAULT_TEMPERATURE};
   changed();
   Serial.printf("Alarm: snoozed for %d min\n", minutes);
   return nullptr;
 }
 
 void cancelSnooze() {
+  if (once.snooze.at == 0) return;  // e.g. a phone automation on every stopped alarm
   once.snooze = {0, 0, 0};
   changed();
 }
@@ -641,6 +658,20 @@ bool snoozed(Alarm& out) {
   if (once.snooze.at == 0) return false;
   out = onceAlarm(once.snooze, Kind::Snooze);
   return true;
+}
+
+bool alarmGoingOn(int minutes) {
+  if (!timeValid() || !data.enabled) return false;
+  if (once.snooze.at != 0) return true;
+
+  time_t now = time(nullptr);
+  if (lastRang.at != 0 && now - lastRang.at <= (time_t)ALARM_PHONE_SNOOZE_S) {
+    return true;
+  }
+
+  Alarm next;
+  if (!nextAlarm(next)) return false;
+  return now >= sunriseStart(next) || next.at <= snoozeTime(minutes);
 }
 
 bool justRang(Alarm& out) {

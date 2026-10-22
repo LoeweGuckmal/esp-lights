@@ -31,6 +31,14 @@ constexpr uint32_t ALARM_PRECONNECT_S = 120;
 constexpr uint32_t ALARM_RETRY_S = 600;
 // The alarm page offers a snooze for this long after an alarm.
 constexpr uint32_t ALARM_SNOOZE_OFFER_S = 3600;
+// A snooze switches the light on this long before its minutes are up
+// (9 min: after 8:45), so it is on when the phone's snoozed alarm rings.
+constexpr uint32_t ALARM_SNOOZE_EARLY_S = 15;
+// /alarm/snooze?if_alarm=1, for a phone automation on every snoozed alarm,
+// snoozes up to this long after an alarm rang. Long enough to snooze the
+// phone's alarm, short enough that snoozing another alarm later in the
+// morning doesn't switch the light off.
+constexpr uint32_t ALARM_PHONE_SNOOZE_S = 20 * 60;
 
 // --- Presence (your phone, over BLE) ---
 // Before an alarm, the ESP listens for your phone. If it isn't heard, the

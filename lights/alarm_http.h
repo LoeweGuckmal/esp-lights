@@ -20,7 +20,9 @@
 //        /alarm/once        hour, minute: one-time alarm, light on at once
 //        /alarm/once/remove
 //        /alarm/snooze      minutes (1-120, default 10): light off now, back
-//                           on at once after that
+//                           on at once after that. if_alarm=1: only when an
+//                           alarm is going on (AlarmClock::alarmGoingOn),
+//                           otherwise "snoozed":false and nothing changes
 //        /alarm/snooze/cancel
 //        /alarm/stop        ends a running sunrise
 void registerAlarmRoutes(WebServer& server);
