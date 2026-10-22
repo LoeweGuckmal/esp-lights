@@ -45,6 +45,11 @@ bool powerOff();
 // The answer arrives asynchronously; read it with lastStatus().
 bool requestStatus();
 
+// Asks for the status and waits for the answer, at most
+// LED_LAMP_STATUS_TIMEOUT_MS. Blocks everything meanwhile. Returns false if
+// the lamp is not connected or didn't answer in time.
+bool fetchStatus();
+
 // Latest status received from the lamp.
 Status lastStatus();
 

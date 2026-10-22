@@ -10,5 +10,6 @@
 //                       brightness (1-100); neither = 50 / 70
 //        /room/on
 //        /room/off
+//        /room/toggle   off if on, otherwise (or if unsure) on
 //        /room/status
 void registerRoomLightRoutes(WebServer& server);

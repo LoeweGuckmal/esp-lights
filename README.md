@@ -90,6 +90,9 @@ Both lights work the same way:
 - Parameters go in the query string (`?r=255&g=80&b=0`) or a JSON body (`{"r":255,"g":80,"b":0}`).
 - Answers are JSON with `"ok":true`, errors are `{"ok":false,"error":"..."}`
   (400 bad parameter, 404 unknown path, 503 lamp not connected).
+- `/toggle` switches the light off if it is on, and on otherwise. If the lamp isn't connected or
+  its state is unknown, it switches it on. It answers like `/on` and `/off` (`"power":"on"` or
+  `"power":"off"`).
 
 ### Room light – `/room`
 
@@ -98,6 +101,7 @@ Both lights work the same way:
 | `/room`        | web control page (GET)                                               |
 | `/room/on`     | –                                                                    |
 | `/room/off`    | –                                                                    |
+| `/room/toggle` | –                                                                    |
 | `/room/rgb`    | `r`, `g`, `b` (0–255) and/or `brightness` (1–100)                    |
 | `/room/white`  | `temperature` (0 = cold … 100 = warm) and/or `brightness` (1–100); neither = 50 / 70 |
 | `/room/status` | –                                                                    |
@@ -105,6 +109,9 @@ Both lights work the same way:
 ```bash
 curl "http://<ip>/room/rgb?r=255&g=80&b=0&brightness=80"
 ```
+
+`/room/toggle` reads the lamp's status like `/room/status` and switches the way `/room/on` and
+`/room/off` do.
 
 `/room/status` reads a fresh status from the lamp. The values are the lamp's raw ones
 (`white_brightness` / `white_temp` 0–127, `color_brightness` 10–100, `mode` 1 = white,
@@ -121,9 +128,13 @@ curl "http://<ip>/room/rgb?r=255&g=80&b=0&brightness=80"
 | `/led`        | web control page (GET)                                              |
 | `/led/on`     | –                                                                   |
 | `/led/off`    | –                                                                   |
+| `/led/toggle` | –                                                                   |
 | `/led/rgb`    | `r`, `g`, `b` (0–255), optional `brightness` (1–100, scales the color) |
 | `/led/white`  | optional `brightness` (1–100, default 70)                           |
 | `/led/status` | –                                                                   |
+
+`/led/toggle` asks the strip whether it is on and waits up to `LED_LAMP_STATUS_TIMEOUT_MS` (1 s)
+for the answer. Without one, it switches the strip on.
 
 `/led/status` asks the strip for a fresh status and immediately returns the **last one received**.
 `age_ms` tells you how old it is; call it again to get the newer values. While `connected` is
@@ -154,8 +165,8 @@ you can change or skip it **for that day only**, and the weekly schedules below 
   offers 5 / 10 / 20 min. The light goes off right away and comes back on at once after that,
   with the brightness and temperature of the alarm that rang.
 - If the room light is already on when the sunrise would start, the alarm leaves it alone.
-  Switching the room light off or setting a color or white (`/room/off`, `/rgb`, `/white`)
-  ends a running sunrise.
+  Switching the room light off or setting a color or white (`/room/off`, `/room/toggle`, `/rgb`,
+  `/white`) ends a running sunrise.
 
 | Path                | Parameters                                                                 |
 | ------------------- | -------------------------------------------------------------------------- |
@@ -282,7 +293,8 @@ the solar radiation every 15 minutes for the next 24 hours, and sunrise and suns
   no phone paired, it comes on as usual. A light that is on already is left alone.
 - **Off** doesn't ask for the phone.
 - While an alarm's sunrise runs, daylight leaves the light to the alarm. Switching the room light
-  off or setting a color or white (`/room/off`, `/rgb`, `/white`) ends a running fade.
+  off or setting a color or white (`/room/off`, `/room/toggle`, `/rgb`, `/white`) ends a running
+  fade.
 - If the lamp is unreachable, it keeps trying for `DAYLIGHT_RETRY_S` (10 min). A change while the
   ESP was off still switches when the ESP is back within those 10 min; older ones don't, like the
   alarms. So a reboot at night doesn't switch the light on.

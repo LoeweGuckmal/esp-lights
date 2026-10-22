@@ -290,6 +290,18 @@ bool requestStatus() {
   return sendCommand(command, sizeof(command));
 }
 
+bool fetchStatus() {
+  unsigned long requestedMs = millis();
+  if (!requestStatus()) return false;
+
+  // Signed difference keeps working when millis() wraps around.
+  while (!statusReceived || (long)(lastStatusMs - requestedMs) < 0) {
+    if (millis() - requestedMs >= LED_LAMP_STATUS_TIMEOUT_MS) return false;
+    delay(10);
+  }
+  return true;
+}
+
 Status lastStatus() {
   Status status;
   status.received = statusReceived;

@@ -80,6 +80,18 @@ void handleOff(WebServer& server) {
   sendOk(server, "\"power\":\"off\"");
 }
 
+// Off if the strip says it is on, otherwise on. While it is not connected
+// or doesn't answer, it counts as off.
+void handleToggle(WebServer& server) {
+  bool isOn = LedLamp::isConnected() && LedLamp::fetchStatus() &&
+              LedLamp::lastStatus().on;
+  if (isOn) {
+    handleOff(server);
+  } else {
+    handleOn(server);
+  }
+}
+
 void handleStatus(WebServer& server) {
   bool connected = LedLamp::isConnected();
 
@@ -116,6 +128,7 @@ void registerLedRoutes(WebServer& server) {
   server.on("/led/white", HTTP_ANY, [&server]() { handleWhite(server); });
   server.on("/led/on", HTTP_ANY, [&server]() { handleOn(server); });
   server.on("/led/off", HTTP_ANY, [&server]() { handleOff(server); });
+  server.on("/led/toggle", HTTP_ANY, [&server]() { handleToggle(server); });
   server.on("/led/status", HTTP_ANY, [&server]() { handleStatus(server); });
   server.on("/led", HTTP_GET, [&server]() {
     sendLightPage(server, "LED Strip", "/led", false);

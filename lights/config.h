@@ -76,6 +76,8 @@ constexpr char LED_LAMP_ADDRESS[] = "C2:14:20:00:C4:0E";
 constexpr uint8_t LED_LAMP_ADDRESS_TYPE = 0;  // 0 = public address
 // How long one connection attempt may take
 constexpr uint32_t LED_LAMP_CONNECT_TIMEOUT_MS = 5000;
+// How long /led/toggle waits for the strip to say whether it is on
+constexpr uint32_t LED_LAMP_STATUS_TIMEOUT_MS = 1000;
 
 // --- Room light (AwoX mesh bulb, BLE) ---
 // Mesh name and password are in secrets.h.
