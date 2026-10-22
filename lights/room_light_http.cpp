@@ -117,6 +117,17 @@ void handleOff(WebServer& server) {
   sendOk(server, "\"power\":\"off\"");
 }
 
+// Off if the lamp is on, otherwise on. While it is not connected or its
+// state is unknown, it counts as off.
+void handleToggle(WebServer& server) {
+  bool isOn = RoomLight::isConnected() && RoomLight::readState().status == 1;
+  if (isOn) {
+    handleOff(server);
+  } else {
+    handleOn(server);
+  }
+}
+
 // The lamp's raw values, null while unknown.
 void handleStatus(WebServer& server) {
   // Don't wait for a connection here, so the page loads fast.
@@ -147,6 +158,7 @@ void registerRoomLightRoutes(WebServer& server) {
   server.on("/room/white", HTTP_ANY, [&server]() { handleWhite(server); });
   server.on("/room/on", HTTP_ANY, [&server]() { handleOn(server); });
   server.on("/room/off", HTTP_ANY, [&server]() { handleOff(server); });
+  server.on("/room/toggle", HTTP_ANY, [&server]() { handleToggle(server); });
   server.on("/room/status", HTTP_ANY, [&server]() { handleStatus(server); });
   server.on("/room", HTTP_GET, [&server]() {
     sendLightPage(server, "Room Light", "/room", true);

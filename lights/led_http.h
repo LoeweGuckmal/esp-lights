@@ -9,5 +9,6 @@
 //        /led/white    optional brightness (1-100, default 70)
 //        /led/on
 //        /led/off
+//        /led/toggle   off if on, otherwise (or if unsure) on
 //        /led/status
 void registerLedRoutes(WebServer& server);
