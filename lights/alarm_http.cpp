@@ -4,6 +4,7 @@
 
 #include "alarm_clock.h"
 #include "alarm_page.h"
+#include "daylight.h"
 #include "http_utils.h"
 #include "room_light.h"
 
@@ -22,7 +23,8 @@ String scheduleJson(int id, const AlarmClock::Schedule& s) {
          ",\"enabled\":" + jsonBool(s.enabled) +
          ",\"fade\":" + String(s.fadeMinutes) +
          ",\"brightness\":" + String(s.brightness) +
-         ",\"temperature\":" + String(s.temperature) + "}";
+         ",\"temperature\":" + String(s.temperature) +
+         ",\"dark_only\":" + jsonBool(s.darkOnly) + "}";
 }
 
 const char* kindText(AlarmClock::Kind kind) {
@@ -45,6 +47,8 @@ String alarmJson(const AlarmClock::Alarm& a, time_t now) {
          ",\"fade\":" + String(a.fadeMinutes) +
          ",\"brightness\":" + String(a.brightness) +
          ",\"temperature\":" + String(a.temperature) +
+         ",\"dark_only\":" + jsonBool(a.darkOnly) +
+         ",\"too_bright\":" + jsonBool(AlarmClock::tooBright(a)) +
          ",\"in_minutes\":" + String(minutes) + "}";
 }
 
@@ -134,7 +138,7 @@ void handleSave(WebServer& server) {
   }
 
   // Start from the saved schedule, so a change can send only some fields.
-  int days = -1, hour = -1, minute = -1, enabled = 1;
+  int days = -1, hour = -1, minute = -1, enabled = 1, darkOnly = 0;
   int fade = AlarmClock::DEFAULT_FADE_MINUTES;
   int brightness = AlarmClock::DEFAULT_BRIGHTNESS;
   int temperature = AlarmClock::DEFAULT_TEMPERATURE;
@@ -148,6 +152,7 @@ void handleSave(WebServer& server) {
     fade = s.fadeMinutes;
     brightness = s.brightness;
     temperature = s.temperature;
+    darkOnly = s.darkOnly;
   }
 
   if (!readIntParam(server, "days", days, 1, 127) ||
@@ -156,7 +161,8 @@ void handleSave(WebServer& server) {
       !readIntParam(server, "enabled", enabled, 0, 1) ||
       !readIntParam(server, "fade", fade, 0, 60) ||
       !readIntParam(server, "brightness", brightness, 1, 100) ||
-      !readIntParam(server, "temperature", temperature, 0, 100)) {
+      !readIntParam(server, "temperature", temperature, 0, 100) ||
+      !readIntParam(server, "dark_only", darkOnly, 0, 1)) {
     return;
   }
 
@@ -168,7 +174,7 @@ void handleSave(WebServer& server) {
   AlarmClock::Schedule schedule = {
       (uint8_t)days,       (uint8_t)hour,       (uint8_t)minute,
       (uint8_t)fade,       (uint8_t)brightness, (uint8_t)temperature,
-      enabled == 1};
+      enabled == 1,        darkOnly == 1};
   sendResult(server, AlarmClock::saveSchedule(id, schedule));
 }
 
@@ -215,15 +221,18 @@ void handleOnce(WebServer& server) {
 }
 
 void handleSnooze(WebServer& server) {
-  int minutes = 10, ifAlarm = 0;
+  int minutes = 10, ifAlarm = 0, ifDark = 0;
   if (!readIntParam(server, "minutes", minutes, 1, 120) ||
-      !readIntParam(server, "if_alarm", ifAlarm, 0, 1)) {
+      !readIntParam(server, "if_alarm", ifAlarm, 0, 1) ||
+      !readIntParam(server, "if_dark", ifDark, 0, 1)) {
     return;
   }
 
   // From a phone automation on every snoozed alarm: nothing to do when the
-  // ESP has no alarm going on. Not an error, so the phone stays quiet.
-  if (ifAlarm == 1 && !AlarmClock::alarmGoingOn(minutes)) {
+  // ESP has no alarm going on, or while it's bright if asked (unknown counts
+  // as dark). Not an error, so the phone stays quiet.
+  if ((ifAlarm == 1 && !AlarmClock::alarmGoingOn(minutes)) ||
+      (ifDark == 1 && Daylight::darkNow() == 0)) {
     sendOk(server, statusFields() + ",\"snoozed\":false");
     return;
   }

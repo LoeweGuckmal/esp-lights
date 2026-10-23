@@ -58,7 +58,7 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
       #20232b;
   }
   #next.idle { background: #20232b; }
-  .label { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+  .label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 22px; }
   .chip {
     font-size: 12px; padding: 3px 10px; border-radius: 999px;
     background: rgba(124, 131, 255, .2); color: #c5c8ff;
@@ -201,6 +201,8 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
     border-radius: 50%; background: #8a8ea0;
   }
   .hint { min-height: 18px; margin: 16px 0 0; font-size: 13px; color: #a6aabb; line-height: 1.45; }
+  .fieldHead.row { align-items: center; margin-bottom: 0; }
+  .fieldHead.row + .hint { margin-top: 6px; }
   /* Safari on iPhone draws its own time control, which ignores the width
      and the centering unless appearance is reset. The box around it clips
      whatever still sticks out. */
@@ -335,6 +337,15 @@ const char ALARM_PAGE[] PROGMEM = R"rawliteral(
     <div id="edPreview" class="preview" aria-hidden="true"></div>
     <div class="ends"><span id="edFrom"></span><span id="edTo"></span></div>
 
+    <div class="field">
+      <div class="fieldHead row">
+        <label for="edDark">Only when dark</label>
+        <label class="switch"><input id="edDark" type="checkbox"><span></span></label>
+      </div>
+      <p class="hint">The light stays off if it's bright outside by then, from the sunrise and
+        the weather forecast.</p>
+    </div>
+
     <button type="button" id="edDelete" class="danger" onclick="deleteSchedule()">Delete schedule</button>
   </div>
 </dialog>
@@ -363,6 +374,8 @@ const FADES = [0, 5, 10, 15, 20, 30];
 const SNOOZES = [5, 10, 20];  // minutes
 // Same as AlarmClock::DEFAULT_* in alarm_clock.h
 const DEFAULTS = { fade: 15, brightness: 70, temperature: 50 };
+// A dark-only alarm when the forecast says it's bright at its time
+const BRIGHT_TEXT = 'Bright by then, so the light stays off';
 
 const $ = id => document.getElementById(id);
 let st = null;  // latest status from the ESP
@@ -542,8 +555,8 @@ function renderNext() {
   } else if (a.kind === 'snooze') {
     html = `<div class="label"><h3>Next alarm</h3><span class="chip sun">Snoozed</span></div>
       <div class="when">${dayText(a.date)}</div>
-      <div class="big">${a.time}</div>
-      <p class="sub">The light comes back on at once · ${inText(a.in_minutes)}</p>
+      <div class="big${a.too_bright ? ' dim' : ''}">${a.time}</div>
+      <p class="sub">${a.too_bright ? BRIGHT_TEXT : 'The light comes back on at once'} · ${inText(a.in_minutes)}</p>
       <div class="actions"><button onclick="cancelSnooze()">Cancel snooze</button></div>`;
   } else if (a.kind === 'one_time') {
     html = `<div class="label"><h3>Next alarm</h3><span class="chip">One-time</span></div>
@@ -565,14 +578,16 @@ function renderNext() {
         <button onclick="openNext()">Change time</button>
       </div>`;
   } else {
-    const chip = !a.changed ? '' : '<span class="chip">' + (usual ? 'Only this time' : 'One-time') + '</span>';
-    const sunrise = a.fade ? 'Sunrise from ' + fromMinutes(toMinutes(a.time) - a.fade) : 'No sunrise';
+    const chip = (!a.changed ? '' : '<span class="chip">' + (usual ? 'Only this time' : 'One-time') + '</span>') +
+                 (a.too_bright ? '<span class="chip warn">Too bright</span>' : '');
+    const sunrise = a.too_bright ? BRIGHT_TEXT
+      : a.fade ? 'Sunrise from ' + fromMinutes(toMinutes(a.time) - a.fade) : 'No sunrise';
     const second = !a.changed ? '<button onclick="skipNext()">Skip</button>'
       : usual ? `<button onclick="resetNext('Back to ${usual}')">Back to ${usual}</button>`
       : `<button onclick="resetNext('One-time alarm removed')">Remove</button>`;
     html = `<div class="label"><h3>Next alarm</h3>${chip}</div>
       <div class="when">${dayText(a.date)}</div>
-      <div class="big">${a.time}</div>
+      <div class="big${a.too_bright ? ' dim' : ''}">${a.time}</div>
       <p class="sub">${sunrise} · ${inText(a.in_minutes)}${a.changed && usual ? '<br>Usually ' + usual : ''}</p>
       <div class="actions">
         <button class="primary" onclick="openNext()">Change</button>
@@ -644,7 +659,7 @@ function renderList() {
           `<span class="${s.days & bit(d) ? 'on' : ''}">${DAYS[d].slice(0, 2)}</span>`).join('')}</div>
         <div class="meta">
           <i class="swatch" style="background:${lightColor(s.temperature, .4 + .6 * s.brightness / 100)}"></i>
-          ${s.fade ? s.fade + ' min sunrise' : 'No sunrise'} · ${s.brightness} %
+          ${s.fade ? s.fade + ' min sunrise' : 'No sunrise'} · ${s.brightness} %${s.dark_only ? ' · When dark' : ''}
         </div>
       </div>
       <label class="switch" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
@@ -711,12 +726,13 @@ function freeDays() {
 function openEditor(id) {
   if (!st) return;
   const s = st.schedules.find(x => x.id === id);
-  ed = s ? { ...s } : { id: null, days: freeDays(), time: '07:00', ...DEFAULTS };
+  ed = s ? { ...s } : { id: null, days: freeDays(), time: '07:00', ...DEFAULTS, dark_only: false };
 
   $('edTitle').textContent = s ? 'Edit schedule' : 'New schedule';
   $('edTime').value = ed.time;
   $('edBright').value = ed.brightness;
   $('edTemp').value = ed.temperature;
+  $('edDark').checked = ed.dark_only;
   $('edDelete').hidden = !s;
   disarmDelete();
 
@@ -799,6 +815,7 @@ $('edTemp').addEventListener('input', () => {
   ed.temperature = Number($('edTemp').value);
   renderEditor();
 });
+$('edDark').addEventListener('change', () => { ed.dark_only = $('edDark').checked; });
 
 function toggleDay(d) {
   ed.days ^= bit(d);
@@ -815,7 +832,8 @@ async function saveSchedule() {
   const [hour, minute] = ed.time.split(':').map(Number);
   const payload = {
     days: ed.days, hour, minute,
-    fade: ed.fade, brightness: ed.brightness, temperature: ed.temperature
+    fade: ed.fade, brightness: ed.brightness, temperature: ed.temperature,
+    dark_only: ed.dark_only ? 1 : 0
   };
   if (ed.id !== null) payload.id = ed.id;
 

@@ -93,6 +93,12 @@ Both lights work the same way:
 - `/toggle` switches the light off if it is on, and on otherwise. If the lamp isn't connected or
   its state is unknown, it switches it on. It answers like `/on` and `/off` (`"power":"on"` or
   `"power":"off"`).
+- **`if_dark=1`** on `/on`, `/toggle`, `/rgb` and `/white` switches only while it's dark, by the
+  same rules as [daylight switching](#daylight--daylight): from 45 min before sunset until
+  sunrise, or while the solar radiation is below 50 W/m². While it's bright, the light stays as it
+  is and the answer is `{"ok":true,"switched":false,"dark":false}`; `/toggle` still switches off.
+  Without a forecast for now it counts as dark. The forecast is only downloaded while daylight
+  switching is on, and lasts 24 h. `"now"` in `/daylight/status` shows what `if_dark` sees.
 
 ### Room light – `/room`
 
@@ -156,15 +162,24 @@ you can change or skip it **for that day only**, and the weekly schedules below 
 - **Sunrise:** `fade` minutes before the alarm time the light comes on at its lowest brightness
   and warmest white, then fades to the schedule's `brightness` and `temperature` by the alarm
   time. `fade` 0 switches it on at the alarm time.
+- **Only when dark** (`dark_only`, off by default): the schedule's alarm stays off when it's
+  bright outside at its time, by the same rules as `if_dark` (see [HTTP API](#http-api)): the sun
+  is up and the radiation is above 50 W/m². Handy in summer, when the sun wakes you anyway. The
+  ESP asks the forecast once, just before the sunrise would start; without a forecast for then
+  it rings. Until then the page shows **Too bright** on the next alarm when the forecast says so
+  (`too_bright` in `upcoming`). The forecast needs daylight switching on (`/daylight/on`).
+  One-time alarms always ring.
 - **Next alarm only:** one scheduled alarm can have a different time or be skipped, for that
-  day only. The change is dropped once the day is over.
+  day only. The change is dropped once the day is over. A changed time keeps the schedule's
+  *only when dark*.
 - **One-time alarm:** rings once at the next time it is `hour:minute` (today if still ahead,
   otherwise tomorrow), apart from the schedule. It switches the light on at once, without a
   sunrise, at the default brightness and temperature (`DEFAULT_*` in `alarm_clock.h`).
 - **Snooze:** during a sunrise and up to `ALARM_SNOOZE_OFFER_S` (1 h) after an alarm, the page
   offers 5 / 10 / 20 min. The light goes off right away and comes back on at once after that,
-  with the brightness and temperature of the alarm that rang. An alarm due before the snooze
-  ends doesn't ring; the snooze takes it over. The iPhone's snooze button can do the same, see
+  with the brightness and temperature of the alarm that rang, and its *only when dark*. An alarm
+  due before the snooze ends doesn't ring; the snooze takes it over. The iPhone's snooze button
+  can do the same, see
   [Snooze with the iPhone alarm](#snooze-with-the-iphone-alarm).
 - If the room light is already on when the sunrise would start, the alarm leaves it alone.
   Switching the room light off or setting a color or white (`/room/off`, `/room/toggle`, `/rgb`,
@@ -176,13 +191,13 @@ you can change or skip it **for that day only**, and the weekly schedules below 
 | `/alarm/status`     | –                                                                          |
 | `/alarm/on`         | – (master switch: alarms ring)                                             |
 | `/alarm/off`        | – (no alarm rings, schedules are kept)                                     |
-| `/alarm/save`       | `id` (missing = new schedule), `days`, `hour`, `minute`, `fade` (0–60), `brightness` (1–100), `temperature` (0–100), `enabled` (0/1) |
+| `/alarm/save`       | `id` (missing = new schedule), `days`, `hour`, `minute`, `fade` (0–60), `brightness` (1–100), `temperature` (0–100), `enabled` (0/1), `dark_only` (0/1) |
 | `/alarm/delete`     | `id`                                                                       |
 | `/alarm/next`       | `hour` and `minute`, or `skip=1`; optional `date` (`yyyymmdd`, default: the next scheduled alarm) |
 | `/alarm/next/reset` | – (back to the schedule)                                                   |
 | `/alarm/once`       | `hour`, `minute` (one-time alarm; replaces the one set before)             |
 | `/alarm/once/remove`| –                                                                          |
-| `/alarm/snooze`     | `minutes` (1–120, default 10); switches the light off and answers with `"snoozed":true` and `"light_off"`. `if_alarm=1`: only while an alarm is going on (see below), otherwise `"snoozed":false` |
+| `/alarm/snooze`     | `minutes` (1–120, default 10); switches the light off and answers with `"snoozed":true` and `"light_off"`. `if_alarm=1`: only while an alarm is going on (see below); `if_dark=1`: only while it's dark (see [HTTP API](#http-api)). Otherwise `"snoozed":false` |
 | `/alarm/snooze/cancel` | –                                                                       |
 | `/alarm/stop`       | – (ends a running sunrise, the light stays as it is)                       |
 
@@ -198,9 +213,11 @@ curl "http://<ip>/alarm/save?days=62&hour=6&minute=45&fade=20"
 
 ```json
 {"ok":true,"time_valid":true,"now":{"date":20261018,"weekday":0,"time":"22:13"},"enabled":true,
- "schedules":[{"id":0,"days":62,"time":"06:45","enabled":true,"fade":20,"brightness":70,"temperature":50}],
+ "schedules":[{"id":0,"days":62,"time":"06:45","enabled":true,"fade":20,"brightness":70,"temperature":50,
+               "dark_only":false}],
  "upcoming":[{"kind":"schedule","date":20261019,"weekday":1,"time":"06:45","schedule":0,"changed":false,
-              "skipped":false,"fade":20,"brightness":70,"temperature":50,"in_minutes":512}],
+              "skipped":false,"fade":20,"brightness":70,"temperature":50,"dark_only":false,
+              "too_bright":false,"in_minutes":512}],
  "sunrise":null,"one_time":null,"snooze":null,"rang":null}
 ```
 
@@ -222,8 +239,9 @@ the ESP decides. It snoozes only while one of its alarms is going on:
 - a snooze is set, or
 - the next alarm is due before the snooze ends (it is moved to the snooze time).
 
-Otherwise (a timer alarm at 3 pm, the alarms are off) it answers `"snoozed":false` and nothing
-changes. The light comes back on `ALARM_SNOOZE_EARLY_S` (15 s) before the snooze is up, after
+If that alarm's schedule is *only when dark*, it also has to be dark, as with `if_dark=1`. So
+`if_alarm=1` alone already follows the schedule's setting. Otherwise (a timer alarm at 3 pm, the
+alarms are off) it answers `"snoozed":false` and nothing changes. The light comes back on `ALARM_SNOOZE_EARLY_S` (15 s) before the snooze is up, after
 8:45 for 9 minutes, so it's on when the phone rings again.
 
 Give the ESP a fixed IP in your router (DHCP reservation), then on the iPhone:
@@ -238,6 +256,8 @@ Give the ESP a fixed IP in your router (DHCP reservation), then on the iPhone:
 
 Optional:
 
+- **Only in the dark, for every schedule:** add `&if_dark=1` to the URL, so a bright morning
+  doesn't switch the light off and back on. For single schedules, use *only when dark* instead.
 - **Away from home** the request fails and the iPhone shows an error. To avoid that, put
   **Get Network Details** (Wi-Fi, Network Name) first and the URL inside **If** *Network Details*
   **is** *your Wi-Fi name*.
@@ -371,7 +391,7 @@ the solar radiation every 15 minutes for the next 24 hours, and sunrise and suns
 **The status** shows what the ESP plans to do:
 
 ```json
-{"ok":true,"enabled":true,"time_valid":true,"radiation":28.8,"sun":"bright","weather":"dark",
+{"ok":true,"enabled":true,"time_valid":true,"radiation":28.8,"sun":"bright","weather":"dark","now":"dark",
  "next_sun":{"time":"2026-10-21 17:40:42","action":"on"},
  "next_weather":{"time":"2026-10-22 08:30:55","action":"off"},"switching":null,
  "forecast":{"downloaded":"2026-10-21 17:23:29","until":"2026-10-22 17:00:00","error":null,"next_download_min":360},
@@ -379,6 +399,8 @@ the solar radiation every 15 minutes for the next 24 hours, and sunrise and suns
 ```
 
 `sun` and `weather` are what each said last (`dark` = light on, `null` until there is a forecast).
+`now` is what `if_dark=1` sees: `dark` when the sun or the weather says so right now (without the
+weather's one-hour wait), `null` without a forecast for now.
 `radiation` is the forecast's value for now. `switching` is set while a switch runs:
 `{"action":"on","trigger":"sunset","step":"fade","progress":40}`, where `step` is `presence`
 (looking for the phone), `lamp` (connecting) or `fade`.

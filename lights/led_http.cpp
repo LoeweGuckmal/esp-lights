@@ -1,5 +1,6 @@
 #include "led_http.h"
 
+#include "daylight_http.h"
 #include "http_utils.h"
 #include "led_lamp.h"
 #include "light_page.h"
@@ -32,6 +33,7 @@ void handleRgb(WebServer& server) {
     return;
   }
 
+  if (!checkIfDark(server)) return;
   if (!ensureLampConnected(server)) return;
 
   // The lamp has no brightness setting, so scale the color instead.
@@ -52,6 +54,7 @@ void handleWhite(WebServer& server) {
   int brightness = 70;
 
   if (!readIntParam(server, "brightness", brightness, 1, 100)) return;
+  if (!checkIfDark(server)) return;
   if (!ensureLampConnected(server)) return;
 
   if (!LedLamp::setWhite((brightness * 255 + 50) / 100)) {
@@ -63,6 +66,7 @@ void handleWhite(WebServer& server) {
 }
 
 void handleOn(WebServer& server) {
+  if (!checkIfDark(server)) return;
   if (!ensureLampConnected(server)) return;
   if (!LedLamp::powerOn()) {
     sendNotConnected(server);

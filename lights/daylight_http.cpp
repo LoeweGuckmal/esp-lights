@@ -59,6 +59,7 @@ String statusFields() {
   json += ",\"radiation\":" + (isnan(s.radiation) ? String("null") : String(s.radiation, 1));
   json += ",\"sun\":" + darkJson(s.sunDark);
   json += ",\"weather\":" + darkJson(s.weatherDark);
+  json += ",\"now\":" + darkJson(Daylight::darkNow());  // what if_dark=1 sees
   json += ",\"next_sun\":" + changeJson(s.nextSun);
   json += ",\"next_weather\":" + changeJson(s.nextWeather);
 
@@ -109,6 +110,15 @@ void sendLog(WebServer& server) {
 }
 
 }  // namespace
+
+bool checkIfDark(WebServer& server) {
+  int ifDark = 0;
+  if (!readIntParam(server, "if_dark", ifDark, 0, 1)) return false;
+  if (ifDark == 0 || Daylight::darkNow() != 0) return true;
+
+  sendOk(server, "\"switched\":false,\"dark\":false");
+  return false;
+}
 
 void registerDaylightRoutes(WebServer& server) {
   server.on("/daylight/status", HTTP_ANY, [&server]() { sendStatus(server); });

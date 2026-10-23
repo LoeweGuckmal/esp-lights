@@ -12,4 +12,6 @@
 //        /room/off
 //        /room/toggle   off if on, otherwise (or if unsure) on
 //        /room/status
+// rgb, white, on and toggle (when switching on) take if_dark=1: only while
+// it's dark, see checkIfDark() in daylight_http.h.
 void registerRoomLightRoutes(WebServer& server);
