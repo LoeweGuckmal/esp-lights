@@ -3,6 +3,7 @@
 #include <Preferences.h>
 
 #include "config.h"
+#include "daylight.h"
 #include "presence.h"
 #include "room_light.h"
 
@@ -24,13 +25,26 @@ struct NextChange {
 };
 
 // Saved in flash as one block. Change the version when the layout changes;
-// a saved block with another version is ignored.
-constexpr uint8_t SAVED_VERSION = 1;
+// a saved block with another version is ignored, unless begin() converts it.
+constexpr uint8_t SAVED_VERSION = 2;
 struct Saved {
   uint8_t version;
   bool enabled;
   uint8_t count;
   Schedule schedules[MAX_SCHEDULES];
+  NextChange next;
+};
+
+// Version 1, before Schedule::darkOnly. begin() converts it.
+struct ScheduleV1 {
+  uint8_t days, hour, minute, fadeMinutes, brightness, temperature;
+  bool enabled;
+};
+struct SavedV1 {
+  uint8_t version;
+  bool enabled;
+  uint8_t count;
+  ScheduleV1 schedules[MAX_SCHEDULES];
   NextChange next;
 };
 
@@ -41,15 +55,19 @@ struct Once {
   int64_t at;  // 0 = not set
   uint8_t brightness;
   uint8_t temperature;
+  bool darkOnly;  // snooze of a dark-only alarm
 };
 
 // Saved apart from `data`, so the schedules don't need a new version.
-constexpr uint8_t ONCE_VERSION = 1;
+// Version 1 had no Once::darkOnly, which sits in what was padding, so the
+// size is the same; begin() clears it.
+constexpr uint8_t ONCE_VERSION = 2;
 struct SavedOnce {
   uint8_t version;
   Once oneTime;
   Once snooze;
 };
+static_assert(sizeof(Once) == 16, "Once::darkOnly must fit into the padding");
 
 SavedOnce once = {ONCE_VERSION, {0, 0, 0}, {0, 0, 0}};
 Preferences prefs;
@@ -75,6 +93,9 @@ unsigned long lastConnectRequestMs = 0;
 // whose answer is in. Each alarm asks once.
 time_t presenceCheckedFor = 0;
 time_t presenceDecidedFor = 0;
+
+// The dark-only alarm (by its time) that asked the forecast. Once, too.
+time_t darkCheckedFor = 0;
 
 void save() {
   prefs.putBytes("data", &data, sizeof(data));
@@ -158,6 +179,7 @@ Alarm onceAlarm(const Once& o, Kind kind) {
   alarm.fadeMinutes = 0;  // switches on at once
   alarm.brightness = o.brightness;
   alarm.temperature = o.temperature;
+  alarm.darkOnly = o.darkOnly;
   return alarm;
 }
 
@@ -281,6 +303,16 @@ void runAlarm(time_t now) {
     return;
   }
 
+  // A dark-only alarm asks the forecast once, before the phone and the lamp.
+  if (darkCheckedFor != alarm.at) {
+    darkCheckedFor = alarm.at;
+    if (tooBright(alarm)) {
+      Serial.printf("Alarm: bright at %02d:%02d, so it doesn't ring.\n", alarm.hour, alarm.minute);
+      skipRinging(alarm);
+      return;
+    }
+  }
+
   // First the phone, then the lamp, so they don't compete for the radio.
   if (waitOrSkipForPresence(alarm)) return;
 
@@ -360,18 +392,42 @@ void runAlarm(time_t now) {
 void begin() {
   prefs.begin("alarms", false);
 
+  bool converted = false;
   Saved loaded;
+  SavedV1 old;
   if (prefs.getBytesLength("data") == sizeof(loaded) &&
       prefs.getBytes("data", &loaded, sizeof(loaded)) == sizeof(loaded) &&
       loaded.version == SAVED_VERSION && loaded.count <= MAX_SCHEDULES) {
     data = loaded;
+  } else if (prefs.getBytesLength("data") == sizeof(old) &&
+             prefs.getBytes("data", &old, sizeof(old)) == sizeof(old) &&
+             old.version == 1 && old.count <= MAX_SCHEDULES) {
+    data.enabled = old.enabled;
+    data.count = old.count;
+    data.next = old.next;
+    for (int i = 0; i < old.count; i++) {
+      const ScheduleV1& s = old.schedules[i];
+      data.schedules[i] = {s.days,       s.hour,        s.minute, s.fadeMinutes,
+                           s.brightness, s.temperature, s.enabled, false};
+    }
+    converted = true;
   }
 
   SavedOnce loadedOnce;
   if (prefs.getBytesLength("once") == sizeof(loadedOnce) &&
-      prefs.getBytes("once", &loadedOnce, sizeof(loadedOnce)) == sizeof(loadedOnce) &&
-      loadedOnce.version == ONCE_VERSION) {
-    once = loadedOnce;
+      prefs.getBytes("once", &loadedOnce, sizeof(loadedOnce)) == sizeof(loadedOnce)) {
+    if (loadedOnce.version == 1) {
+      loadedOnce.version = ONCE_VERSION;
+      loadedOnce.oneTime.darkOnly = false;
+      loadedOnce.snooze.darkOnly = false;
+      converted = true;
+    }
+    if (loadedOnce.version == ONCE_VERSION) once = loadedOnce;
+  }
+
+  if (converted) {
+    save();
+    Serial.println("Alarms: converted the saved alarms to the new version.");
   }
 
   configTzTime(TIME_ZONE, NTP_SERVER_1, NTP_SERVER_2);
@@ -496,10 +552,12 @@ int upcomingAlarms(Alarm* out, int max) {
       alarm.fadeMinutes = s.fadeMinutes;
       alarm.brightness = s.brightness;
       alarm.temperature = s.temperature;
+      alarm.darkOnly = s.darkOnly;
     } else {
       alarm.fadeMinutes = DEFAULT_FADE_MINUTES;
       alarm.brightness = DEFAULT_BRIGHTNESS;
       alarm.temperature = DEFAULT_TEMPERATURE;
+      alarm.darkOnly = false;
     }
 
     alarm.changed = false;
@@ -640,9 +698,11 @@ const char* snooze(int minutes) {
     like = next;
   }
 
+  // Dark-only like the alarm, too.
   bool known = like.at != 0;
   once.snooze = {(int64_t)at, known ? like.brightness : DEFAULT_BRIGHTNESS,
-                 known ? like.temperature : DEFAULT_TEMPERATURE};
+                 known ? like.temperature : DEFAULT_TEMPERATURE,
+                 known && like.darkOnly};
   changed();
   Serial.printf("Alarm: snoozed for %d min\n", minutes);
   return nullptr;
@@ -662,16 +722,25 @@ bool snoozed(Alarm& out) {
 
 bool alarmGoingOn(int minutes) {
   if (!timeValid() || !data.enabled) return false;
-  if (once.snooze.at != 0) return true;
 
+  // The alarm going on, if any
   time_t now = time(nullptr);
-  if (lastRang.at != 0 && now - lastRang.at <= (time_t)ALARM_PHONE_SNOOZE_S) {
-    return true;
+  Alarm alarm;
+  if (once.snooze.at != 0) {
+    alarm = onceAlarm(once.snooze, Kind::Snooze);
+  } else if (lastRang.at != 0 && now - lastRang.at <= (time_t)ALARM_PHONE_SNOOZE_S) {
+    alarm = lastRang;
+  } else if (!nextAlarm(alarm) ||
+             (now < sunriseStart(alarm) && alarm.at > snoozeTime(minutes))) {
+    return false;
   }
 
-  Alarm next;
-  if (!nextAlarm(next)) return false;
-  return now >= sunriseStart(next) || next.at <= snoozeTime(minutes);
+  // A dark-only one only while it's dark, like if_dark=1.
+  return !alarm.darkOnly || Daylight::darkNow() != 0;
+}
+
+bool tooBright(const Alarm& alarm) {
+  return alarm.darkOnly && Daylight::darkAt(alarm.at) == 0;
 }
 
 bool justRang(Alarm& out) {

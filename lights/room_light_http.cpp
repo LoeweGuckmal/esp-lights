@@ -2,6 +2,7 @@
 
 #include "alarm_clock.h"
 #include "daylight.h"
+#include "daylight_http.h"
 #include "http_utils.h"
 #include "light_page.h"
 #include "room_light.h"
@@ -43,6 +44,7 @@ void handleRgb(WebServer& server) {
     sendError(server, 400, "Provide 'r', 'g', 'b' and/or 'brightness'");
     return;
   }
+  if (!checkIfDark(server)) return;
 
   // A manual setting takes over from a running sunrise or daylight switch.
   AlarmClock::stopSunrise();
@@ -77,6 +79,7 @@ void handleWhite(WebServer& server) {
     temperature = 50;
     brightness = 70;
   }
+  if (!checkIfDark(server)) return;
 
   AlarmClock::stopSunrise();
   Daylight::stopSwitching();
@@ -98,6 +101,7 @@ void handleWhite(WebServer& server) {
 }
 
 void handleOn(WebServer& server) {
+  if (!checkIfDark(server)) return;
   if (!ensureLampConnected(server)) return;
   if (!RoomLight::powerOn()) {
     sendNotConnected(server);

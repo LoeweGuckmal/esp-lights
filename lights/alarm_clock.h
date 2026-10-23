@@ -25,6 +25,7 @@ struct Schedule {
   uint8_t brightness;   // 1..100
   uint8_t temperature;  // 0 = cold .. 100 = warm
   bool enabled;
+  bool darkOnly;        // stays off when it's bright by then, see tooBright()
 };
 
 enum class Kind : uint8_t {
@@ -47,6 +48,7 @@ struct Alarm {
   uint8_t fadeMinutes;
   uint8_t brightness;
   uint8_t temperature;
+  bool darkOnly;       // from the schedule, or the alarm a snooze belongs to
 };
 
 struct Sunrise {
@@ -114,9 +116,15 @@ bool snoozed(Alarm& out);  // false if no snooze is set
 
 // Whether snooze(minutes) belongs to an alarm of the ESP: a sunrise is
 // running, an alarm or snooze rang at most ALARM_PHONE_SNOOZE_S ago, a
-// snooze is set, or the next alarm is due within `minutes`. For a phone
+// snooze is set, or the next alarm is due within `minutes`. If that alarm
+// is dark-only, also only while it's dark (Daylight::darkNow). For a phone
 // automation that runs on every snoozed alarm, also one in the afternoon.
 bool alarmGoingOn(int minutes);
+
+// Whether a dark-only alarm stays off: the forecast says it's bright at its
+// time (Daylight::darkAt). Unknown counts as dark, so it rings. Decided
+// once, just before its sunrise; until then this is a forecast.
+bool tooBright(const Alarm& alarm);
 
 // The alarm that rang last, if that was less than ALARM_SNOOZE_OFFER_S ago
 // and no snooze is set: the page offers a snooze then.

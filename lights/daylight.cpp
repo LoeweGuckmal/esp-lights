@@ -418,6 +418,15 @@ Status status() {
   return s;
 }
 
+int8_t darkAt(time_t t) {
+  if (!AlarmClock::timeValid() || !covers(t)) return -1;
+  return sunDarkAt(t) || weatherDarkAt(t);
+}
+
+int8_t darkNow() {
+  return darkAt(time(nullptr));
+}
+
 int logCount() {
   return history.count;
 }

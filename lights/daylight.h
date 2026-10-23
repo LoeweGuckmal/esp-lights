@@ -97,6 +97,15 @@ bool stopSwitching();
 
 Status status();
 
+// Whether it is dark at `t`, for if_dark=1 on the light routes and the
+// dark-only alarms: by the sun (from DAYLIGHT_SUNSET_LEAD_S before sunset
+// until sunrise) or by the weather (radiation below
+// DAYLIGHT_RADIATION_THRESHOLD). 1 = dark, 0 = bright, -1 = unknown: no
+// forecast for then (it covers 24 h). The forecast is only downloaded while
+// the master switch is on.
+int8_t darkAt(time_t t);
+int8_t darkNow();
+
 int logCount();
 LogEntry logEntry(int index);  // 0 = newest
 

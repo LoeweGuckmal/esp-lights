@@ -11,4 +11,6 @@
 //        /led/off
 //        /led/toggle   off if on, otherwise (or if unsure) on
 //        /led/status
+// rgb, white, on and toggle (when switching on) take if_dark=1: only while
+// it's dark, see checkIfDark() in daylight_http.h.
 void registerLedRoutes(WebServer& server);
