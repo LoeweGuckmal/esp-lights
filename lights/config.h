@@ -7,6 +7,12 @@
 // --- Board ---
 constexpr uint8_t STATUS_LED_PIN = 48;  // onboard RGB LED of the ESP32-S3 DevKit
 
+// --- Wi-Fi ---
+// When the Wi-Fi is still gone this long after a drop, the ESP connects
+// again, and then every WIFI_RECONNECT_S until it is back. The ESP32 core
+// usually reconnects by itself well before.
+constexpr uint32_t WIFI_RECONNECT_S = 30;
+
 // --- Bluetooth ---
 constexpr char BLE_DEVICE_NAME[] = "ESP32-Lamp-Test";
 // While a lamp is unreachable, the wait between connection attempts doubles

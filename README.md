@@ -27,7 +27,8 @@ from the weather forecast of open-meteo.com.
    `secrets.h` is in `.gitignore`, so your passwords and location never get committed.
 2. Check `lights/config.h`, especially the BLE addresses of both lights.
 3. Open `lights/lights.ino` in the Arduino IDE, select **ESP32S3 Dev Module** and the right port, and upload.
-4. Open the serial monitor at 115200 baud. Once Wi-Fi is connected it prints the IP address.
+4. Open the serial monitor at 115200 baud. Once Wi-Fi is connected it prints the IP address
+   (later, `W` prints it again).
 5. Open `http://<ip>/` in a browser: on and off for both lights, with links to `/led`, `/room`
    and `/alarm`. The presence page at `/presence` and the daylight routes under `/daylight` aren't
    linked anywhere; open them directly.
@@ -51,7 +52,7 @@ lights/
 ├── config.h             pins, BLE device name, HTTP port, light addresses
 ├── secrets.h            Wi-Fi and mesh credentials (not in git, copy from secrets.example.h)
 ├── secrets.example.h    template for secrets.h
-├── wifi_connection.*    connects to Wi-Fi
+├── wifi_connection.*    connects to Wi-Fi, reconnects after a drop, counts the drops
 ├── http_server.*        the shared web server and its 404 handler
 ├── http_utils.*         read request parameters, send JSON answers
 ├── home_page.*          start page at /: on and off for both lights
@@ -421,6 +422,32 @@ Send a single character in the serial monitor (115200 baud):
 `A` prints the ESP's time and the next alarm. `P` looks for the phone; the result is printed
 when the check ends.
 
+`W` prints the Wi-Fi signal and a few health values, for when the ESP is hard to reach:
+
+```
+Wi-Fi: -64 dBm (good), "MyWifi" on channel 6, access point 12:34:56:78:9A:BC
+  IP 192.168.1.50, gateway 192.168.1.1, connected for 2 d 3 h
+  Weakest signal since the start: -79 dBm, 5 h 2 min ago
+  Lost 2 time(s) since the start, last 5 h 1 min ago: reason 200 BEACON_TIMEOUT, -84 dBm
+Running for 13 d 2 h, started by: power on
+Memory: 112 KB free, lowest 61 KB since the start, largest block 96 KB
+Slowest loop pass since the last W: 1834 ms, 2 min ago
+```
+
+- **Signal**: above about -70 dBm is plenty for this; below -80 dBm expect drops. The weakest
+  value is read every 10 s.
+- **Lost**: every time the connection dropped, also printed when it happens. The reason codes
+  are Espressif's (`wifi_err_reason_t`): 200 `BEACON_TIMEOUT` means the router wasn't heard any
+  more, usually a weak signal; 2, 15 and 204 are login timeouts, often from a busy or restarting
+  router. If the Wi-Fi is still gone after `WIFI_RECONNECT_S` (30 s), the ESP connects again
+  itself, every 30 s until it's back.
+- **Started by**: why the ESP last (re)started; a crash, watchdog or brownout means it restarted
+  without being asked to.
+- **Memory**: if free memory keeps shrinking from one `W` to the next, something leaks; once
+  little is left, Wi-Fi is the first to suffer. A restart frees it again.
+- **Slowest loop pass**: usually about 10 ms, a few seconds while a lamp connects or the forecast
+  downloads. Web requests wait that long, so a high value here makes the ESP seem unreachable.
+
 ## Adding another light
 
 Look at the room light as an example:
@@ -456,6 +483,9 @@ Look at the room light as an example:
   A lamp reconnecting during a check pauses the scan; the check keeps going until its time is up.
 - The presence check only knows whether your phone is near, not whether you are. A phone left at
   home counts as you being home, and with Bluetooth turned off in Settings the phone isn't found.
+- Serial output that doesn't fit into its 1 KB buffer is dropped instead of waited for. That way a
+  computer on the USB port with no serial monitor open can't slow the ESP down, but whatever was
+  printed while nothing read the port is gone.
 - Daylight needs the internet for the forecast. Without it, the last forecast lasts 24 hours;
   after that the light isn't switched until a download works again.
 - Downloading the forecast blocks the ESP for a moment (about 0.1–0.5 s, at most ~10 s when
