@@ -20,6 +20,13 @@
 #include "wifi_connection.h"
 
 void setup() {
+#if ARDUINO_USB_MODE && ARDUINO_USB_CDC_ON_BOOT
+  // Serial is the USB port. Plugged into a computer with no serial monitor
+  // reading, every print used to wait up to 2 s, and with it loop() and the
+  // web server. Now a print that doesn't fit into the buffer is dropped.
+  Serial.setTxBufferSize(1024);
+  Serial.setTxTimeoutMs(0);
+#endif
   Serial.begin(115200);
   delay(1000);
   rgbLedWrite(STATUS_LED_PIN, 0, 0, 0);
@@ -59,6 +66,7 @@ void setup() {
 
 void loop() {
   handleSerialCommands();
+  maintainWifi();
   handleHttpClients();
   LedLamp::loop();
   RoomLight::loop();
