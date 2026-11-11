@@ -80,6 +80,9 @@ about any specific light.
 All files sit directly in the sketch folder because the Arduino IDE only shows (and compiles
 without extra include paths) files at the top level of the sketch.
 
+`wifi_test/` next to it is a separate sketch for finding Wi-Fi problems, see
+[Wi-Fi test](#wi-fi-test).
+
 ## HTTP API
 
 The start page at `/` has on and off buttons for both lights and links to their pages and the
@@ -448,6 +451,72 @@ Slowest loop pass since the last W: 1834 ms, 2 min ago
 - **Slowest loop pass**: usually about 10 ms, a few seconds while a lamp connects or the forecast
   downloads. Web requests wait that long, so a high value here makes the ESP seem unreachable.
 
+## Wi-Fi test
+
+`wifi_test/` is a second, small sketch for when the ESP is hard to reach: only Wi-Fi, no
+Bluetooth, no lights. It tells a problem of the board (antenna, power supply) or of the router
+apart from one in the lights firmware.
+
+Upload it instead of `lights`, with the same board settings, and open the serial monitor:
+
+```bash
+arduino-cli compile --fqbn esp32:esp32:esp32s3 wifi_test
+```
+
+```bash
+arduino-cli upload --fqbn esp32:esp32:esp32s3 -p COM3 wifi_test
+```
+
+It connects with the Wi-Fi name and password the lights firmware saved on the board, so it needs
+no `secrets.h`. (For a board that never ran the lights firmware, copy `lights/secrets.h` into
+`wifi_test/`.) Alarms, the paired phone and the daylight log stay as they are; upload `lights`
+again when you're done.
+
+What it does:
+
+- **Scan** at the start, and with `s`: every network in reach with its signal, channel and
+  access point, strongest first, yours marked.
+- **Connects to the strongest access point** of your network, like the lights firmware.
+- **One line every 5 s**: the signal, how many pings to the router came back (two per second)
+  and how long they took. A few routers never answer pings; then go by the page.
+- **A page at `http://<ip>/`**: the signal, and one request per second from your phone or PC to
+  the ESP as a bar each. Every request is a new connection, like one from a shortcut.
+
+```
+7 network(s) in reach, strongest first:
+   dBm  ch  access point       name
+   -38   6  12:34:56:78:9A:BC  MyWifi  <- yours
+   -71  11  22:33:44:55:66:77  Neighbours
+Right beside the router, a healthy board reads about -30 to -50 dBm.
+Connecting..
+Took 1.9 s.
+Connected: -38 dBm (very good), access point 12:34:56:78:9A:BC, channel 6
+IP 192.168.1.50, router 192.168.1.1, sending power 20.0 dBm, power saving on
+The page with the live values: http://192.168.1.50/
+    15 s  -39 dBm (very good)  pings 10 of 10 back, avg 4 ms, max 11 ms  web requests 5
+```
+
+How to read it, with the ESP at its usual place and then right beside the router:
+
+| What you see                                                        | What it means                                                |
+| ------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Strong signal beside the router, all pings back, all bars green     | Board and router are fine. If `lights` is bad at the same place, its Bluetooth or code is the cause. |
+| Your network is listed from several access points                   | Check which one `lights` is on (`W` prints it). It takes the strongest when it connects, but doesn't switch afterwards. |
+| Everything is weak, also beside the router, and few networks show   | The board hears badly: something on the antenna, or the radio itself. Try `c`. |
+| Good signal, but pings get lost or bars turn red                    | Sending is the problem, or the channel is crowded. Try `t` and another cable or power supply. |
+| `Started by: brownout`                                              | The power supply dips when the Wi-Fi sends. Another cable, port or power supply. |
+
+Commands, one character each:
+
+| Key | Does                                                                                   |
+| --- | -------------------------------------------------------------------------------------- |
+| `s` | Scan again                                                                             |
+| `r` | Connect again                                                                          |
+| `t` | Sending power 20 → 15 → 11 → 8.5 dBm → 20. Less can be *better* with a weak power supply or a badly matched antenna. |
+| `p` | Power saving on/off. The lights firmware needs it on, because of Bluetooth.            |
+| `c` | Calibrate the radio from scratch, then restart. The board keeps its calibration in flash and only refines it on a normal start, so a bad one sticks, also through uploads. |
+| `?` | Show commands                                                                          |
+
 ## Adding another light
 
 Look at the room light as an example:
@@ -483,6 +552,9 @@ Look at the room light as an example:
   A lamp reconnecting during a check pauses the scan; the check keeps going until its time is up.
 - The presence check only knows whether your phone is near, not whether you are. A phone left at
   home counts as you being home, and with Bluetooth turned off in Settings the phone isn't found.
+- With several access points of the same name (repeater, mesh), the ESP takes the strongest one
+  when it connects. It stays on that one until the connection drops, also if you carry it next
+  to another; restart it after moving it.
 - Serial output that doesn't fit into its 1 KB buffer is dropped instead of waited for. That way a
   computer on the USB port with no serial monitor open can't slow the ESP down, but whatever was
   printed while nothing read the port is gone.
