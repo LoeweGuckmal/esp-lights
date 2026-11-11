@@ -1,2 +1,3 @@
 # Local Wi-Fi credentials (copy lights/secrets.example.h to create it)
 lights/secrets.h
+wifi_test/secrets.h

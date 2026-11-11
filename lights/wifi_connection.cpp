@@ -55,6 +55,11 @@ void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
 void connectWifi() {
   WiFi.onEvent(onWifiEvent);
   WiFi.mode(WIFI_STA);
+  // Look on all channels and take the strongest access point with this
+  // name, also when reconnecting. The default stops at the first one it
+  // finds, which can be a far repeater or mesh node.
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.print("Connecting to Wi-Fi");
