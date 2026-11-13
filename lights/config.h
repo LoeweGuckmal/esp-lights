@@ -12,6 +12,9 @@ constexpr uint8_t STATUS_LED_PIN = 48;  // onboard RGB LED of the ESP32-S3 DevKi
 // again, and then every WIFI_RECONNECT_S until it is back. The ESP32 core
 // usually reconnects by itself well before.
 constexpr uint32_t WIFI_RECONNECT_S = 30;
+// /wifi/switch gives the other access point this long to take the ESP,
+// then goes back to the strongest one.
+constexpr uint32_t WIFI_SWITCH_TIMEOUT_S = 20;
 
 // --- Bluetooth ---
 constexpr char BLE_DEVICE_NAME[] = "ESP32-Lamp-Test";

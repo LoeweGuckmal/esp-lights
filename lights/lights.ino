@@ -18,6 +18,7 @@
 #include "room_light_http.h"
 #include "serial_console.h"
 #include "wifi_connection.h"
+#include "wifi_http.h"
 
 void setup() {
 #if ARDUINO_USB_MODE && ARDUINO_USB_CDC_ON_BOOT
@@ -61,6 +62,7 @@ void setup() {
   registerAlarmRoutes(httpServer());
   registerPresenceRoutes(httpServer());
   registerDaylightRoutes(httpServer());
+  registerWifiRoutes(httpServer());
   startHttpServer();
 }
 
