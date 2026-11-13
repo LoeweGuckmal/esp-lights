@@ -34,14 +34,6 @@ static String duration(uint32_t s) {
   return text;
 }
 
-static const char* signalText(int rssi) {
-  if (rssi >= -60) return "very good";
-  if (rssi >= -67) return "good";
-  if (rssi >= -75) return "okay";
-  if (rssi >= -82) return "weak";
-  return "very weak";
-}
-
 static const char* startReason() {
   switch (esp_reset_reason()) {
     case ESP_RST_POWERON: return "power on";
@@ -61,7 +53,7 @@ static void printHealth() {
   if (w.connected) {
     int rssi = WiFi.RSSI();
     Serial.printf("Wi-Fi: %d dBm (%s), \"%s\" on channel %d, access point %s\n", rssi,
-                  signalText(rssi), WiFi.SSID().c_str(), WiFi.channel(), WiFi.BSSIDstr().c_str());
+                  wifiSignalText(rssi), WiFi.SSID().c_str(), WiFi.channel(), WiFi.BSSIDstr().c_str());
     Serial.printf("  IP %s, gateway %s, connected for %s\n", WiFi.localIP().toString().c_str(),
                   WiFi.gatewayIP().toString().c_str(), duration(w.sinceS).c_str());
   } else {

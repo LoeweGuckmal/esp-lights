@@ -52,7 +52,7 @@ lights/
 ├── config.h             pins, BLE device name, HTTP port, light addresses
 ├── secrets.h            Wi-Fi and mesh credentials (not in git, copy from secrets.example.h)
 ├── secrets.example.h    template for secrets.h
-├── wifi_connection.*    connects to Wi-Fi, reconnects after a drop, counts the drops
+├── wifi_connection.*    connects to Wi-Fi, reconnects after a drop, switches access points
 ├── http_server.*        the shared web server and its 404 handler
 ├── http_utils.*         read request parameters, send JSON answers
 ├── home_page.*          start page at /: on and off for both lights
@@ -70,7 +70,8 @@ lights/
 ├── presence_page.*      the presence page
 ├── weather.*            downloads the forecast from open-meteo.com (namespace Weather)
 ├── daylight.*           room light by the sun and the weather, with a log (namespace Daylight)
-└── daylight_http.*      HTTP routes under /daylight
+├── daylight_http.*      HTTP routes under /daylight
+└── wifi_http.*          HTTP routes under /wifi
 ```
 
 The rule of thumb: each light has a **driver** (talks to the device) and an **HTTP file**
@@ -409,6 +410,50 @@ weather's one-hour wait), `null` without a forecast for now.
 `{"action":"on","trigger":"sunset","step":"fade","progress":40}`, where `step` is `presence`
 (looking for the phone), `lamp` (connecting) or `fade`.
 
+### Wi-Fi – `/wifi`
+
+Not linked from the other pages, and there's no page: the routes answer in JSON.
+
+| Path           | Does                                                                        |
+| -------------- | --------------------------------------------------------------------------- |
+| `/wifi/status` | The signal, the access point, lost connections and memory                   |
+| `/wifi/switch` | Moves to the other access point of your network, for when this one is slow  |
+
+`/wifi/status` is what the serial command [`W`](#serial-commands) prints, for when no serial
+monitor is at hand:
+
+```json
+{"ok":true,"connected":true,"rssi":-81,"rating":"weak",
+ "access_point":"12:34:56:78:9A:BC","channel":1,"ip":"192.168.1.50",
+ "pinned":false,"connected_s":86400,
+ "weakest":{"rssi":-88,"ago_s":3600},
+ "drops":1,"last_drop":{"reason":200,"name":"BEACON_TIMEOUT","rssi":-90,"ago_s":86410},
+ "switch":{"state":"switched","ago_s":86400},
+ "uptime_s":172800,"memory":{"free":114000,"lowest":61000,"largest_block":96000}}
+```
+
+`/wifi/switch` is for a network with several access points of the same name (repeater, mesh).
+The ESP takes the strongest one, but the strongest isn't always the fastest. The route answers
+right away, with the status from before the switch. Half a second later the ESP looks for the
+other access points (about 2 s, during which it does nothing else) and connects to the strongest
+of them. The router normally gives it the same IP address again, and it is reachable after a few
+seconds.
+
+Then `"switch"` in `/wifi/status` says how it went:
+
+| `state`       | Means                                                                          |
+| ------------- | ------------------------------------------------------------------------------ |
+| `switched`    | On the other access point now                                                  |
+| `no_other`    | No other access point in reach: it stayed                                      |
+| `scan_failed` | It stayed                                                                      |
+| `fell_back`   | The other one didn't take the ESP within `WIFI_SWITCH_TIMEOUT_S` (20 s), so it went back to the strongest |
+| `pending`, `connecting` | Still running; another `/wifi/switch` answers 409 meanwhile          |
+
+After a switch the ESP is **pinned** to that access point (`"pinned":true`): it also reconnects
+to it after a drop. Only when it can't be reached for `WIFI_RECONNECT_S` (30 s), or after a
+restart, does the ESP take the strongest one again. With two access points, `/wifi/switch` twice
+gets you back to the first.
+
 ## Serial commands
 
 Send a single character in the serial monitor (115200 baud):
@@ -425,7 +470,8 @@ Send a single character in the serial monitor (115200 baud):
 `A` prints the ESP's time and the next alarm. `P` looks for the phone; the result is printed
 when the check ends.
 
-`W` prints the Wi-Fi signal and a few health values, for when the ESP is hard to reach:
+`W` prints the Wi-Fi signal and a few health values, for when the ESP is hard to reach
+(most of it is also at [`/wifi/status`](#wi-fi--wifi)):
 
 ```
 Wi-Fi: -64 dBm (good), "MyWifi" on channel 6, access point 12:34:56:78:9A:BC
@@ -554,7 +600,8 @@ Look at the room light as an example:
   home counts as you being home, and with Bluetooth turned off in Settings the phone isn't found.
 - With several access points of the same name (repeater, mesh), the ESP takes the strongest one
   when it connects. It stays on that one until the connection drops, also if you carry it next
-  to another; restart it after moving it.
+  to another; restart it after moving it. It can't tell a slow access point from a fast one:
+  [`/wifi/switch`](#wi-fi--wifi) moves it to the other one.
 - Serial output that doesn't fit into its 1 KB buffer is dropped instead of waited for. That way a
   computer on the USB port with no serial monitor open can't slow the ESP down, but whatever was
   printed while nothing read the port is gone.
