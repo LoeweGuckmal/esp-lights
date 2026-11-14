@@ -458,12 +458,18 @@ restart, does the ESP take the strongest one again. With two access points, `/wi
 gets you back to the first.
 
 **A preferred channel.** If one access point is the better one most of the time, set its channel
-as `WIFI_PREFERRED_CHANNEL` in `config.h` (`0` = none). After every start the ESP then connects
-to the strongest access point on that channel and is pinned to it, as after a switch. If none
-shows up there, or it doesn't take the ESP within `WIFI_SWITCH_TIMEOUT_S`, the ESP takes the
-strongest of all. `/wifi/status` shows where it ended up. An access point set to pick its channel
-by itself can move to another one; give it a fixed channel in its own settings, or the
-preference stops matching.
+as `WIFI_PREFERRED_CHANNEL` in `config.h` (`0` = none). The ESP starts on the strongest access
+point as usual. If that isn't on the preferred channel, it moves there 10 s later, the same way
+`/wifi/switch` does, and is pinned to that access point. If none shows up on the channel, or it
+doesn't take the ESP, the ESP stays where it is and tries again 5 and 10 minutes later.
+`/wifi/status` shows where it ended up. A `/wifi/switch` by hand ends this until the next start.
+
+It doesn't connect to the preferred channel directly, because an access point can turn away an
+ESP that just restarted (`7 NOT_ASSOCED` in the serial monitor, again and again) and still take
+it when it comes over from another access point.
+
+An access point set to pick its channel by itself can move to another one; give it a fixed
+channel in its own settings, or the preference stops matching.
 
 ## Serial commands
 
@@ -609,12 +615,13 @@ Look at the room light as an example:
   A lamp reconnecting during a check pauses the scan; the check keeps going until its time is up.
 - The presence check only knows whether your phone is near, not whether you are. A phone left at
   home counts as you being home, and with Bluetooth turned off in Settings the phone isn't found.
-- With several access points of the same name (repeater, mesh), the ESP takes the one on
-  `WIFI_PREFERRED_CHANNEL` when it starts, or the strongest one without a preference. It stays
-  on that one until the connection drops, also if you carry it next to another; restart it after
-  moving it. It can't tell a slow access point from a fast one:
-  [`/wifi/switch`](#wi-fi--wifi) moves it to the other one. Once it lost its preferred access
-  point for 30 s and took the strongest, it only goes back after a restart or a switch.
+- With several access points of the same name (repeater, mesh), the ESP takes the strongest one
+  when it starts and then moves to `WIFI_PREFERRED_CHANNEL`, if one is set. It stays on its
+  access point until the connection drops, also if you carry it next to another; restart it
+  after moving it. It can't tell a slow access point from a fast one:
+  [`/wifi/switch`](#wi-fi--wifi) moves it to the other one. The preferred channel only counts
+  after a start: once the ESP lost that access point for 30 s and took the strongest, it only
+  goes back after a restart or a switch.
 - Serial output that doesn't fit into its 1 KB buffer is dropped instead of waited for. That way a
   computer on the USB port with no serial monitor open can't slow the ESP down, but whatever was
   printed while nothing read the port is gone.
