@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "secrets.h"
+#include "status_led.h"
 
 static_assert(sizeof(ROOM_LIGHT_MESH_NAME) <= 17, "mesh name: max 16 characters");
 static_assert(sizeof(ROOM_LIGHT_MESH_PASSWORD) <= 17, "mesh password: max 16 characters");
@@ -225,7 +226,7 @@ void parseStatus(const uint8_t* data, size_t length) {
 // Runs in the BLE task: only set flags here.
 class LampCallbacks : public NimBLEClientCallbacks {
   void onConnect(NimBLEClient* pClient) override {
-    rgbLedWrite(STATUS_LED_PIN, 0, 0, 0);
+    StatusLed::setLampDown(false);
     attemptPending = false;
     justConnected = true;
   }
@@ -240,7 +241,7 @@ class LampCallbacks : public NimBLEClientCallbacks {
     ready = false;
     justConnected = false;
     attemptPending = false;
-    rgbLedWrite(STATUS_LED_PIN, 255, 0, 0);
+    StatusLed::setLampDown(true);
     Serial.print("Room light disconnected, reason ");
     Serial.println(reason);
   }
@@ -272,7 +273,7 @@ void startConnecting() {
   nextAttemptMs = millis() + retryDelayMs;
   retryDelayMs = min(retryDelayMs * 2, BLE_RETRY_MAX_MS);
   if (retryDelayMs >= 1920000) {
-    rgbLedWrite(STATUS_LED_PIN, 0, 0, 0);
+    StatusLed::setLampDown(false);
   }
 }
 

@@ -17,6 +17,7 @@
 #include "room_light.h"
 #include "room_light_http.h"
 #include "serial_console.h"
+#include "status_led.h"
 #include "wifi_connection.h"
 #include "wifi_http.h"
 
@@ -69,6 +70,7 @@ void setup() {
 void loop() {
   handleSerialCommands();
   maintainWifi();
+  StatusLed::update();
   handleHttpClients();
   LedLamp::loop();
   RoomLight::loop();
