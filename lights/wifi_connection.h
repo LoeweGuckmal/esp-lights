@@ -36,6 +36,9 @@ const char* wifiSwitchName(WifiSwitch state);  // "switched", "no_other", ...
 // Returns false if a switch is already running.
 bool requestWifiSwitch();
 
+// How many failed attempts of a switch are kept with their reason.
+constexpr int WIFI_SWITCH_ERRORS = 8;
+
 // For the serial console and /wifi/status. Times are from millis(), so they only make sense
 // for up to 49 days.
 struct WifiStats {
@@ -50,6 +53,14 @@ struct WifiStats {
   bool pinned;              // held to the access point of the last switch
   WifiSwitch lastSwitch;
   uint32_t lastSwitchAgoS;  // since it was asked for, began to connect or ended
+  // Where the running or last switch went. switchChannel 0: it found no
+  // access point.
+  uint8_t switchTarget[6];
+  uint8_t switchChannel;
+  int8_t switchRssi;        // in the scan before, in dBm
+  // The reason codes of its failed attempts, the first WIFI_SWITCH_ERRORS.
+  uint8_t switchErrors[WIFI_SWITCH_ERRORS];
+  uint8_t switchErrorCount;
 };
 
 WifiStats wifiStats();

@@ -73,6 +73,19 @@ static void printHealth() {
                   WiFi.disconnectReasonName((wifi_err_reason_t)w.lastDropReason), w.lastDropRssi);
   }
 
+  if (w.lastSwitch != WifiSwitch::None) {
+    Serial.printf("  Last switch: %s, %s ago", wifiSwitchName(w.lastSwitch),
+                  duration(w.lastSwitchAgoS).c_str());
+    if (w.switchChannel != 0) {
+      Serial.printf(", to channel %d at %d dBm", w.switchChannel, w.switchRssi);
+    }
+    for (int i = 0; i < w.switchErrorCount; i++) {
+      Serial.printf("%s%u %s", i == 0 ? ", failed attempts: " : ", ", w.switchErrors[i],
+                    WiFi.disconnectReasonName((wifi_err_reason_t)w.switchErrors[i]));
+    }
+    Serial.println();
+  }
+
   Serial.printf("Running for %s, started by: %s\n",
                 duration(esp_timer_get_time() / 1000000).c_str(), startReason());
   Serial.printf("Memory: %lu KB free, lowest %lu KB since the start, largest block %lu KB\n",

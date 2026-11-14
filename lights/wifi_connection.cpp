@@ -41,8 +41,13 @@ volatile bool wasOnline = false;
 // Set before we leave an access point ourselves, so it isn't counted as a
 // lost connection.
 volatile bool leaving = false;
-// While connectWifi() waits: every failed attempt is printed with its reason.
-volatile bool starting = false;
+// While connectWifi() waits and while a switch connects: dots, and every
+// failed attempt with its reason in between.
+volatile bool showAttempts = false;
+// The reasons of the failed attempts of the running or last switch.
+volatile uint8_t switchErrors[WIFI_SWITCH_ERRORS] = {};
+volatile uint8_t switchErrorCount = 0;
+volatile bool collectErrors = false;
 
 int weakestRssi = 0;
 unsigned long weakestRssiMs = 0;
@@ -58,6 +63,9 @@ unsigned long lastRetryMs = 0;
 WifiSwitch switchState = WifiSwitch::None;
 unsigned long switchMs = 0;  // asked for, connecting since, or ended
 uint8_t switchTarget[6] = {};
+uint8_t switchChannel = 0;  // 0 = the last switch found no access point
+int8_t switchRssi = 0;
+unsigned long lastDotMs = 0;
 // Connected to one access point by its address. Undone when it can't be
 // reached, and by a restart.
 bool pinned = false;
@@ -74,6 +82,7 @@ void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
     online = true;
     onlineSinceMs = millis();
     if (wasOnline) {
+      if (showAttempts) Serial.println();
       Serial.printf("Wi-Fi: connected again after %lu s, access point %s, channel %d, IP %s\n",
                     (millis() - wentOfflineMs) / 1000, WiFi.BSSIDstr().c_str(),
                     (int)WiFi.channel(), WiFi.localIP().toString().c_str());
@@ -83,7 +92,13 @@ void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
     // While reconnecting, every failed attempt ends up here too.
     if (!online) {
       uint8_t reason = info.wifi_sta_disconnected.reason;
-      if (starting && reason != WIFI_REASON_ASSOC_LEAVE) {
+      // 8 and 36 are our own: leaving, and ending an attempt.
+      if (reason == WIFI_REASON_ASSOC_LEAVE || reason == WIFI_REASON_STA_LEAVING) return;
+      if (collectErrors && switchErrorCount < WIFI_SWITCH_ERRORS) {
+        switchErrors[switchErrorCount] = reason;
+        switchErrorCount = switchErrorCount + 1;
+      }
+      if (showAttempts) {
         Serial.printf(" [%u %s]", reason, WiFi.disconnectReasonName((wifi_err_reason_t)reason));
       }
       return;
@@ -104,6 +119,8 @@ void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
 }
 
 void endSwitch(WifiSwitch result) {
+  showAttempts = false;
+  collectErrors = false;
   switchState = result;
   switchMs = millis();
   if (switchToPreferred) {
@@ -170,8 +187,10 @@ int connectPinned(uint8_t onChannel, const uint8_t* exclude, uint32_t scanMs) {
 
   memcpy(switchTarget, WiFi.BSSID((uint8_t)best), sizeof(switchTarget));
   int32_t channel = WiFi.channel((uint8_t)best);
-  Serial.printf("Wi-Fi: connecting to access point %s, channel %d, %d dBm\n",
-                WiFi.BSSIDstr((uint8_t)best).c_str(), (int)channel, (int)WiFi.RSSI((uint8_t)best));
+  switchChannel = channel;
+  switchRssi = WiFi.RSSI((uint8_t)best);
+  Serial.printf("Wi-Fi: connecting to access point %s, channel %d, %d dBm",
+                WiFi.BSSIDstr((uint8_t)best).c_str(), (int)channel, (int)switchRssi);
   WiFi.scanDelete();
 
   pinned = true;
@@ -187,6 +206,9 @@ void startSwitch() {
   uint8_t current[6] = {};
   bool connected = WiFi.isConnected();
   if (connected) WiFi.BSSID(current);
+
+  switchChannel = 0;
+  switchErrorCount = 0;
 
   int result;
   if (switchToPreferred) {
@@ -206,6 +228,10 @@ void startSwitch() {
                                      : "Wi-Fi: no other access point in reach, staying.");
     endSwitch(WifiSwitch::NoOther);
   } else {
+    // The line of connectPinned() goes on with dots and failed attempts.
+    collectErrors = true;
+    showAttempts = true;
+    lastDotMs = millis();
     switchState = WifiSwitch::Connecting;
     switchMs = millis();
   }
@@ -238,15 +264,19 @@ bool runSwitch(unsigned long now) {
 
   uint8_t current[6] = {};
   if (WiFi.isConnected() && memcmp(WiFi.BSSID(current), switchTarget, sizeof(current)) == 0) {
-    Serial.println("Wi-Fi: switched.");
     endSwitch(WifiSwitch::Switched);
+    Serial.println("\nWi-Fi: switched.");
     return false;
   }
   if (now - switchMs >= WIFI_SWITCH_TIMEOUT_S * 1000UL) {
-    Serial.println("Wi-Fi: the other access point didn't take us, back to the strongest.");
-    connectToStrongest();
     endSwitch(WifiSwitch::FellBack);
+    Serial.println("\nWi-Fi: that access point didn't take us, back to the strongest.");
+    connectToStrongest();
     return false;
+  }
+  if (now - lastDotMs >= 500) {
+    lastDotMs = now;
+    Serial.print(".");
   }
   return true;
 }
@@ -298,7 +328,7 @@ void connectWifi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.print("Connecting to Wi-Fi");
-  starting = true;
+  showAttempts = true;
 
   unsigned long lastRetry = millis();
   while (WiFi.status() != WL_CONNECTED) {
@@ -312,7 +342,7 @@ void connectWifi() {
       connectToStrongest();
     }
   }
-  starting = false;
+  showAttempts = false;
 
   // The preferred channel comes a little later, from maintainWifi(): the
   // access point there may turn away an ESP that just restarted, but takes
@@ -390,5 +420,10 @@ WifiStats wifiStats() {
   s.pinned = pinned;
   s.lastSwitch = switchState;
   s.lastSwitchAgoS = (now - switchMs) / 1000;
+  memcpy(s.switchTarget, switchTarget, sizeof(s.switchTarget));
+  s.switchChannel = switchChannel;
+  s.switchRssi = switchRssi;
+  s.switchErrorCount = switchErrorCount;
+  for (int i = 0; i < s.switchErrorCount; i++) s.switchErrors[i] = switchErrors[i];
   return s;
 }

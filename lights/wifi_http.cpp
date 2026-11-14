@@ -13,7 +13,7 @@ String statusFields() {
   WifiStats s = wifiStats();
 
   String json;
-  json.reserve(640);
+  json.reserve(896);
   json = "\"connected\":" + jsonBool(s.connected);
   if (s.connected) {
     int rssi = WiFi.RSSI();
@@ -46,7 +46,23 @@ String statusFields() {
     json += ",\"switch\":null";
   } else {
     json += ",\"switch\":{\"state\":\"" + String(wifiSwitchName(s.lastSwitch)) +
-            "\",\"ago_s\":" + String(s.lastSwitchAgoS) + "}";
+            "\",\"ago_s\":" + String(s.lastSwitchAgoS);
+    if (s.switchChannel != 0) {
+      char target[18];
+      snprintf(target, sizeof(target), "%02X:%02X:%02X:%02X:%02X:%02X", s.switchTarget[0],
+               s.switchTarget[1], s.switchTarget[2], s.switchTarget[3], s.switchTarget[4],
+               s.switchTarget[5]);
+      json += ",\"access_point\":\"" + String(target) + "\",\"channel\":" +
+              String(s.switchChannel) + ",\"rssi\":" + String(s.switchRssi);
+      json += ",\"errors\":[";
+      for (int i = 0; i < s.switchErrorCount; i++) {
+        if (i > 0) json += ",";
+        json += "\"" + String(s.switchErrors[i]) + " " +
+                WiFi.disconnectReasonName((wifi_err_reason_t)s.switchErrors[i]) + "\"";
+      }
+      json += "]";
+    }
+    json += "}";
   }
 
   json += ",\"uptime_s\":" + String((uint32_t)(esp_timer_get_time() / 1000000));
