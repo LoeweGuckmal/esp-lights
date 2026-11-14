@@ -15,7 +15,9 @@ from the weather forecast of open-meteo.com.
 
 ## Requirements
 
-- ESP32-S3 DevKit (board **ESP32S3 Dev Module**). The onboard RGB LED (GPIO 48) is switched off on boot.
+- ESP32-S3 DevKit (board **ESP32S3 Dev Module**). The onboard RGB LED (GPIO 48) shows what isn't
+  connected: **green** the Wi-Fi (after a start, during a switch of the access point, after a
+  drop), **red** the room light after it dropped, **yellow** both, off when all is well.
 - [Arduino IDE 2](https://www.arduino.cc/en/software) or `arduino-cli`
 - Board package **esp32** by Espressif, 3.x (built with 3.3.12)
 - Library **NimBLE-Arduino** 2.x (built with 2.5.1)
@@ -58,6 +60,7 @@ lights/
 ├── home_page.*          start page at /: on and off for both lights
 ├── light_page.*         HTML control page shared by all lights
 ├── serial_console.*     single-character test commands over the serial monitor
+├── status_led.*         the onboard LED: red, green or yellow for what isn't connected
 ├── led_lamp.*           LED strip driver: BLE connection, commands, status (namespace LedLamp)
 ├── led_http.*           HTTP routes under /led
 ├── room_light.*         room light driver: BLE connection, pairing, encryption (namespace RoomLight)

@@ -1,9 +1,11 @@
 #include "wifi_connection.h"
 
 #include <WiFi.h>
+#include <esp_wifi.h>
 
 #include "config.h"
 #include "secrets.h"
+#include "status_led.h"
 
 namespace {
 
@@ -32,6 +34,8 @@ volatile bool wasOnline = false;
 // Set before we leave an access point ourselves, so it isn't counted as a
 // lost connection.
 volatile bool leaving = false;
+// While connectWifi() waits: every failed attempt is printed with its reason.
+volatile bool starting = false;
 
 int weakestRssi = 0;
 unsigned long weakestRssiMs = 0;
@@ -65,7 +69,13 @@ void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
     wasOnline = true;
   } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
     // While reconnecting, every failed attempt ends up here too.
-    if (!online) return;
+    if (!online) {
+      uint8_t reason = info.wifi_sta_disconnected.reason;
+      if (starting && reason != WIFI_REASON_ASSOC_LEAVE) {
+        Serial.printf(" [%u %s]", reason, WiFi.disconnectReasonName((wifi_err_reason_t)reason));
+      }
+      return;
+    }
     online = false;
     wentOfflineMs = millis();
     if (leaving) {
@@ -86,11 +96,34 @@ void endSwitch(WifiSwitch result) {
   switchMs = millis();
 }
 
-// Connects to the strongest access point of the network again, whichever.
-void connectToStrongest() {
-  pinned = false;
+// Ends a connection and a running attempt. The driver takes no new
+// configuration and no scan while it is connecting ("sta is connecting,
+// cannot set config"), and while an access point doesn't answer it is
+// connecting nearly all the time. The core's own reconnecting is off until
+// resumeReconnecting(), or it would start the old attempt again right away.
+void stopConnecting() {
+  WiFi.setAutoReconnect(false);
   leaving = WiFi.isConnected();
+  WiFi.disconnect();
+  delay(100);
+}
+
+void resumeReconnecting() {
+  WiFi.setAutoReconnect(true);
+}
+
+// Connects to the strongest access point of the network again, whichever.
+// Returns false if the driver didn't take it: `pinned` then stays set, and
+// the callers try again.
+bool connectToStrongest() {
+  stopConnecting();
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  resumeReconnecting();
+
+  wifi_config_t now = {};
+  if (esp_wifi_get_config(WIFI_IF_STA, &now) != ESP_OK || now.sta.bssid_set) return false;
+  pinned = false;
+  return true;
 }
 
 // Scans for the access points of the network, on one channel or on all
@@ -98,8 +131,15 @@ void connectToStrongest() {
 // out the access point with that address. Blocks for the scan.
 // Returns 1 when connecting, 0 if there is none, -1 if the scan failed.
 int connectPinned(uint8_t onChannel, const uint8_t* exclude, uint32_t scanMs) {
+  // A scan isn't allowed while an attempt is running. Still connected is
+  // fine: the switch scans first and leaves then.
+  if (!WiFi.isConnected()) stopConnecting();
+
   int count = WiFi.scanNetworks(false, false, false, scanMs, onChannel, WIFI_SSID);
-  if (count < 0) return -1;
+  if (count < 0) {
+    resumeReconnecting();
+    return -1;
+  }
 
   int best = -1;
   for (int i = 0; i < count; i++) {
@@ -108,6 +148,7 @@ int connectPinned(uint8_t onChannel, const uint8_t* exclude, uint32_t scanMs) {
   }
   if (best < 0) {
     WiFi.scanDelete();
+    resumeReconnecting();
     return 0;
   }
 
@@ -118,8 +159,9 @@ int connectPinned(uint8_t onChannel, const uint8_t* exclude, uint32_t scanMs) {
   WiFi.scanDelete();
 
   pinned = true;
-  leaving = WiFi.isConnected();
+  stopConnecting();
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD, channel, switchTarget);
+  resumeReconnecting();
   return 1;
 }
 
@@ -196,6 +238,9 @@ bool requestWifiSwitch() {
 }
 
 void connectWifi() {
+  StatusLed::setWifiDown(true);
+  StatusLed::update();
+
   WiFi.onEvent(onWifiEvent);
   WiFi.mode(WIFI_STA);
   // Look on all channels and take the strongest access point with this
@@ -220,17 +265,36 @@ void connectWifi() {
   if (!preferred) WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.print("Connecting to Wi-Fi");
+  starting = true;
 
   unsigned long start = millis();
+  unsigned long lastRetry = start;
+  bool gaveUpPreferred = false;
   while (WiFi.status() != WL_CONNECTED) {
+    StatusLed::update();
     delay(500);
     Serial.print(".");
-    if (pinned && millis() - start >= WIFI_SWITCH_TIMEOUT_S * 1000UL) {
-      Serial.printf("\nWi-Fi: the access point on channel %d didn't take us, taking the strongest",
-                    (int)WIFI_PREFERRED_CHANNEL);
+
+    unsigned long now = millis();
+    if (pinned) {
+      if (now - start < WIFI_SWITCH_TIMEOUT_S * 1000UL) continue;
+      if (!gaveUpPreferred) {
+        gaveUpPreferred = true;
+        Serial.printf("\nWi-Fi: the access point on channel %d didn't take us, taking the strongest",
+                      (int)WIFI_PREFERRED_CHANNEL);
+      }
+      // Tried again on the next round if the driver didn't take it.
+      connectToStrongest();
+      lastRetry = now;
+    } else if (now - lastRetry >= WIFI_RECONNECT_S * 1000UL) {
+      // As in maintainWifi(): don't count on the core to keep trying.
+      lastRetry = now;
       connectToStrongest();
     }
   }
+  starting = false;
+  StatusLed::setWifiDown(false);
+  StatusLed::update();
 
   WiFi.setSleep(true);
   Serial.println();
@@ -250,6 +314,8 @@ void maintainWifi() {
       weakestRssiMs = now;
     }
   }
+
+  StatusLed::setWifiDown(!WiFi.isConnected());
 
   if (runSwitch(now)) {
     offline = false;
