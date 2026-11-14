@@ -431,7 +431,8 @@ monitor is at hand:
  "pinned":false,"connected_s":86400,
  "weakest":{"rssi":-88,"ago_s":3600},
  "drops":1,"last_drop":{"reason":200,"name":"BEACON_TIMEOUT","rssi":-90,"ago_s":86410},
- "switch":{"state":"switched","ago_s":86400},
+ "switch":{"state":"switched","ago_s":86400,"access_point":"12:34:56:78:9A:BC","channel":1,
+           "rssi":-76,"errors":[]},
  "uptime_s":172800,"memory":{"free":114000,"lowest":61000,"largest_block":96000}}
 ```
 
@@ -442,7 +443,10 @@ other access points (about 2 s, during which it does nothing else) and connects 
 of them. The router normally gives it the same IP address again, and it is reachable after a few
 seconds.
 
-Then `"switch"` in `/wifi/status` says how it went:
+Then `"switch"` in `/wifi/status` says how it went, where it went (`access_point`, `channel` and
+the `rssi` from the scan) and, in `errors`, why each attempt to connect failed, e.g.
+`["7 NOT_ASSOCED","7 NOT_ASSOCED","2 AUTH_EXPIRE"]` (the first 8). The serial monitor shows the
+same while it happens: dots, with every failed attempt in between.
 
 | `state`       | Means                                                                          |
 | ------------- | ------------------------------------------------------------------------------ |
