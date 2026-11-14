@@ -12,8 +12,16 @@ constexpr uint8_t STATUS_LED_PIN = 48;  // onboard RGB LED of the ESP32-S3 DevKi
 // again, and then every WIFI_RECONNECT_S until it is back. The ESP32 core
 // usually reconnects by itself well before.
 constexpr uint32_t WIFI_RECONNECT_S = 30;
-// /wifi/switch gives the other access point this long to take the ESP,
-// then goes back to the strongest one.
+// With several access points of the same name (repeater, mesh), the ESP
+// takes the strongest one, which isn't always the fastest. Set the channel
+// of the one to prefer here: after a start the ESP connects to the
+// strongest access point on that channel, and only takes the strongest of
+// all if there is none or it can't be reached. 0 = no preference.
+// An access point that picks its channel by itself can move away from it;
+// give it a fixed channel in its own settings then.
+constexpr uint8_t WIFI_PREFERRED_CHANNEL = 1;
+// /wifi/switch and the preferred channel give their access point this long
+// to take the ESP, then the ESP goes back to the strongest one.
 constexpr uint32_t WIFI_SWITCH_TIMEOUT_S = 20;
 
 // --- Bluetooth ---

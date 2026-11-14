@@ -16,6 +16,9 @@ constexpr unsigned long SWITCH_DELAY_MS = 500;
 // The scan for the other access points listens this long on each channel.
 // The loop stands still for about 2 s meanwhile.
 constexpr uint32_t SWITCH_SCAN_MS = 150;
+// The scan on WIFI_PREFERRED_CHANNEL at the start: one channel only, so
+// it can listen for longer.
+constexpr uint32_t PREFERRED_SCAN_MS = 500;
 
 // Written from the network event task by onWifiEvent(), read in loop().
 volatile bool online = false;  // connected, with an IP address
@@ -90,43 +93,53 @@ void connectToStrongest() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
-// Looks for the other access points of the network and connects to the
-// strongest of them. Blocks for the scan.
+// Scans for the access points of the network, on one channel or on all
+// (0), and starts connecting to the strongest one, pinned. `exclude` leaves
+// out the access point with that address. Blocks for the scan.
+// Returns 1 when connecting, 0 if there is none, -1 if the scan failed.
+int connectPinned(uint8_t onChannel, const uint8_t* exclude, uint32_t scanMs) {
+  int count = WiFi.scanNetworks(false, false, false, scanMs, onChannel, WIFI_SSID);
+  if (count < 0) return -1;
+
+  int best = -1;
+  for (int i = 0; i < count; i++) {
+    if (exclude && memcmp(WiFi.BSSID((uint8_t)i), exclude, 6) == 0) continue;
+    if (best < 0 || WiFi.RSSI((uint8_t)i) > WiFi.RSSI((uint8_t)best)) best = i;
+  }
+  if (best < 0) {
+    WiFi.scanDelete();
+    return 0;
+  }
+
+  memcpy(switchTarget, WiFi.BSSID((uint8_t)best), sizeof(switchTarget));
+  int32_t channel = WiFi.channel((uint8_t)best);
+  Serial.printf("Wi-Fi: connecting to access point %s, channel %d, %d dBm\n",
+                WiFi.BSSIDstr((uint8_t)best).c_str(), (int)channel, (int)WiFi.RSSI((uint8_t)best));
+  WiFi.scanDelete();
+
+  pinned = true;
+  leaving = WiFi.isConnected();
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD, channel, switchTarget);
+  return 1;
+}
+
+// Moves to the strongest other access point of the network.
 void startSwitch() {
   uint8_t current[6] = {};
   bool connected = WiFi.isConnected();
   if (connected) WiFi.BSSID(current);
 
-  int count = WiFi.scanNetworks(false, false, false, SWITCH_SCAN_MS, 0, WIFI_SSID);
-  if (count < 0) {
-    Serial.printf("Wi-Fi: switch failed, the scan didn't work (%d)\n", count);
+  int result = connectPinned(0, connected ? current : nullptr, SWITCH_SCAN_MS);
+  if (result < 0) {
+    Serial.println("Wi-Fi: switch failed, the scan didn't work.");
     endSwitch(WifiSwitch::ScanFailed);
-    return;
-  }
-
-  int best = -1;
-  for (int i = 0; i < count; i++) {
-    if (connected && memcmp(WiFi.BSSID((uint8_t)i), current, sizeof(current)) == 0) continue;
-    if (best < 0 || WiFi.RSSI((uint8_t)i) > WiFi.RSSI((uint8_t)best)) best = i;
-  }
-  if (best < 0) {
-    WiFi.scanDelete();
+  } else if (result == 0) {
     Serial.println("Wi-Fi: no other access point in reach, staying.");
     endSwitch(WifiSwitch::NoOther);
-    return;
+  } else {
+    switchState = WifiSwitch::Connecting;
+    switchMs = millis();
   }
-
-  memcpy(switchTarget, WiFi.BSSID((uint8_t)best), sizeof(switchTarget));
-  int32_t channel = WiFi.channel((uint8_t)best);
-  Serial.printf("Wi-Fi: switching to access point %s, channel %d, %d dBm\n",
-                WiFi.BSSIDstr((uint8_t)best).c_str(), (int)channel, (int)WiFi.RSSI((uint8_t)best));
-  WiFi.scanDelete();
-
-  pinned = true;
-  leaving = connected;
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD, channel, switchTarget);
-  switchState = WifiSwitch::Connecting;
-  switchMs = millis();
 }
 
 // True while a switch is running: the reconnect in maintainWifi() stays
@@ -190,13 +203,33 @@ void connectWifi() {
   // finds, which can be a far repeater or mesh node.
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
   WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  // Unless one channel is preferred: then the strongest access point on
+  // that one. Two scans, because at the edge of its range an access point
+  // doesn't show up in every scan.
+  bool preferred = false;
+  if (WIFI_PREFERRED_CHANNEL != 0) {
+    for (int attempt = 0; attempt < 2 && !preferred; attempt++) {
+      preferred = connectPinned(WIFI_PREFERRED_CHANNEL, nullptr, PREFERRED_SCAN_MS) > 0;
+    }
+    if (!preferred) {
+      Serial.printf("Wi-Fi: no access point found on channel %d, taking the strongest.\n",
+                    (int)WIFI_PREFERRED_CHANNEL);
+    }
+  }
+  if (!preferred) WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.print("Connecting to Wi-Fi");
 
+  unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
+    if (pinned && millis() - start >= WIFI_SWITCH_TIMEOUT_S * 1000UL) {
+      Serial.printf("\nWi-Fi: the access point on channel %d didn't take us, taking the strongest",
+                    (int)WIFI_PREFERRED_CHANNEL);
+      connectToStrongest();
+    }
   }
 
   WiFi.setSleep(true);
