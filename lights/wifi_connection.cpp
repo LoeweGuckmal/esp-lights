@@ -18,9 +18,16 @@ constexpr unsigned long SWITCH_DELAY_MS = 500;
 // The scan for the other access points listens this long on each channel.
 // The loop stands still for about 2 s meanwhile.
 constexpr uint32_t SWITCH_SCAN_MS = 150;
-// The scan on WIFI_PREFERRED_CHANNEL at the start: one channel only, so
-// it can listen for longer.
+// The scan on WIFI_PREFERRED_CHANNEL: one channel only, so it can listen
+// for longer.
 constexpr uint32_t PREFERRED_SCAN_MS = 500;
+// The move to the preferred channel starts this long after the start, and
+// is tried again this much later if it didn't work, PREFERRED_TRIES times
+// in all. Right after a restart the access point there can turn the ESP
+// away for a while ("7 NOT_ASSOCED").
+constexpr unsigned long PREFERRED_FIRST_MS = 10000;
+constexpr unsigned long PREFERRED_RETRY_MS = 5 * 60 * 1000UL;
+constexpr int PREFERRED_TRIES = 3;
 
 // Written from the network event task by onWifiEvent(), read in loop().
 volatile bool online = false;  // connected, with an IP address
@@ -54,6 +61,11 @@ uint8_t switchTarget[6] = {};
 // Connected to one access point by its address. Undone when it can't be
 // reached, and by a restart.
 bool pinned = false;
+// The running switch goes to WIFI_PREFERRED_CHANNEL, not to the other
+// access point.
+bool switchToPreferred = false;
+int preferredTriesLeft = 0;
+unsigned long nextPreferredMs = 0;
 
 // Runs in the network event task.
 void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
@@ -94,6 +106,10 @@ void onWifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
 void endSwitch(WifiSwitch result) {
   switchState = result;
   switchMs = millis();
+  if (switchToPreferred) {
+    if (result == WifiSwitch::Switched) preferredTriesLeft = 0;
+    nextPreferredMs = switchMs + PREFERRED_RETRY_MS;
+  }
 }
 
 // Ends a connection and a running attempt. The driver takes no new
@@ -165,18 +181,29 @@ int connectPinned(uint8_t onChannel, const uint8_t* exclude, uint32_t scanMs) {
   return 1;
 }
 
-// Moves to the strongest other access point of the network.
+// Moves to the strongest other access point of the network, or to the
+// strongest one on the preferred channel.
 void startSwitch() {
   uint8_t current[6] = {};
   bool connected = WiFi.isConnected();
   if (connected) WiFi.BSSID(current);
 
-  int result = connectPinned(0, connected ? current : nullptr, SWITCH_SCAN_MS);
+  int result;
+  if (switchToPreferred) {
+    // Two scans: at the edge of its range an access point doesn't show up
+    // in every one.
+    result = connectPinned(WIFI_PREFERRED_CHANNEL, nullptr, PREFERRED_SCAN_MS);
+    if (result == 0) result = connectPinned(WIFI_PREFERRED_CHANNEL, nullptr, PREFERRED_SCAN_MS);
+  } else {
+    result = connectPinned(0, connected ? current : nullptr, SWITCH_SCAN_MS);
+  }
+
   if (result < 0) {
     Serial.println("Wi-Fi: switch failed, the scan didn't work.");
     endSwitch(WifiSwitch::ScanFailed);
   } else if (result == 0) {
-    Serial.println("Wi-Fi: no other access point in reach, staying.");
+    Serial.println(switchToPreferred ? "Wi-Fi: no access point found on the preferred channel, staying."
+                                     : "Wi-Fi: no other access point in reach, staying.");
     endSwitch(WifiSwitch::NoOther);
   } else {
     switchState = WifiSwitch::Connecting;
@@ -187,6 +214,22 @@ void startSwitch() {
 // True while a switch is running: the reconnect in maintainWifi() stays
 // out of it.
 bool runSwitch(unsigned long now) {
+  // After a start: from the strongest access point on to the preferred
+  // channel, unless the ESP is there already.
+  bool idle = switchState != WifiSwitch::Pending && switchState != WifiSwitch::Connecting;
+  if (idle && preferredTriesLeft > 0 && (long)(now - nextPreferredMs) >= 0 && WiFi.isConnected()) {
+    if (WiFi.channel() == WIFI_PREFERRED_CHANNEL) {
+      preferredTriesLeft = 0;
+    } else {
+      preferredTriesLeft--;
+      Serial.printf("Wi-Fi: on channel %d, moving to the preferred channel %d\n",
+                    (int)WiFi.channel(), (int)WIFI_PREFERRED_CHANNEL);
+      switchToPreferred = true;
+      switchState = WifiSwitch::Pending;
+      switchMs = now - SWITCH_DELAY_MS;  // no answer to wait for
+    }
+  }
+
   if (switchState == WifiSwitch::Pending) {
     if (now - switchMs >= SWITCH_DELAY_MS) startSwitch();
     return true;
@@ -232,6 +275,9 @@ const char* wifiSwitchName(WifiSwitch state) {
 
 bool requestWifiSwitch() {
   if (switchState == WifiSwitch::Pending || switchState == WifiSwitch::Connecting) return false;
+  // Asked for by hand: the preferred channel has no say any more.
+  switchToPreferred = false;
+  preferredTriesLeft = 0;
   switchState = WifiSwitch::Pending;
   switchMs = millis();
   return true;
@@ -249,50 +295,32 @@ void connectWifi() {
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
   WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
 
-  // Unless one channel is preferred: then the strongest access point on
-  // that one. Two scans, because at the edge of its range an access point
-  // doesn't show up in every scan.
-  bool preferred = false;
-  if (WIFI_PREFERRED_CHANNEL != 0) {
-    for (int attempt = 0; attempt < 2 && !preferred; attempt++) {
-      preferred = connectPinned(WIFI_PREFERRED_CHANNEL, nullptr, PREFERRED_SCAN_MS) > 0;
-    }
-    if (!preferred) {
-      Serial.printf("Wi-Fi: no access point found on channel %d, taking the strongest.\n",
-                    (int)WIFI_PREFERRED_CHANNEL);
-    }
-  }
-  if (!preferred) WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.print("Connecting to Wi-Fi");
   starting = true;
 
-  unsigned long start = millis();
-  unsigned long lastRetry = start;
-  bool gaveUpPreferred = false;
+  unsigned long lastRetry = millis();
   while (WiFi.status() != WL_CONNECTED) {
     StatusLed::update();
     delay(500);
     Serial.print(".");
 
-    unsigned long now = millis();
-    if (pinned) {
-      if (now - start < WIFI_SWITCH_TIMEOUT_S * 1000UL) continue;
-      if (!gaveUpPreferred) {
-        gaveUpPreferred = true;
-        Serial.printf("\nWi-Fi: the access point on channel %d didn't take us, taking the strongest",
-                      (int)WIFI_PREFERRED_CHANNEL);
-      }
-      // Tried again on the next round if the driver didn't take it.
-      connectToStrongest();
-      lastRetry = now;
-    } else if (now - lastRetry >= WIFI_RECONNECT_S * 1000UL) {
-      // As in maintainWifi(): don't count on the core to keep trying.
-      lastRetry = now;
+    // As in maintainWifi(): don't count on the core to keep trying.
+    if (millis() - lastRetry >= WIFI_RECONNECT_S * 1000UL) {
+      lastRetry = millis();
       connectToStrongest();
     }
   }
   starting = false;
+
+  // The preferred channel comes a little later, from maintainWifi(): the
+  // access point there may turn away an ESP that just restarted, but takes
+  // one that comes over from another access point.
+  if (WIFI_PREFERRED_CHANNEL != 0) {
+    preferredTriesLeft = PREFERRED_TRIES;
+    nextPreferredMs = millis() + PREFERRED_FIRST_MS;
+  }
   StatusLed::setWifiDown(false);
   StatusLed::update();
 
